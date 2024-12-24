@@ -1,72 +1,102 @@
+#define UNICODE
+#define _UNICODE
+#include <cmath>
 #include <windows.h>
+#include <stdbool.h>
+#include <stdint.h>
 
-const char g_szClassName[] = "myWindowClass";
+static bool quit = false;
 
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    switch(msg)
-    {
-        case WM_CLOSE:
-            DestroyWindow(hwnd);
-        break;
-        case WM_DESTROY:
-            PostQuitMessage(0);
-        break;
-        default:
-            return DefWindowProc(hwnd, msg, wParam, lParam);
+struct {
+    int width;
+    int height;
+    uint32_t *pixels;
+} frame = {0};
+
+LRESULT CALLBACK WindowProcessMessage(HWND, UINT, WPARAM, LPARAM);
+#if RAND_MAX == 32767
+#define Rand32() ((rand() << 16) + (rand() << 1) + (rand() & 1))
+#else
+#define Rand32() rand()
+#endif
+
+static BITMAPINFO frame_bitmap_info;
+static HBITMAP frame_bitmap = 0;
+static HDC frame_device_context = 0;
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nCmdShow) {
+    const wchar_t window_class_name[] = L"My Window Class";
+    static WNDCLASS window_class = { 0 };
+    window_class.lpfnWndProc = WindowProcessMessage;
+    window_class.hInstance = hInstance;
+    window_class.lpszClassName = window_class_name;
+    RegisterClass(&window_class);
+
+    frame_bitmap_info.bmiHeader.biSize = sizeof(frame_bitmap_info.bmiHeader);
+    frame_bitmap_info.bmiHeader.biPlanes = 1;
+    frame_bitmap_info.bmiHeader.biBitCount = 32;
+    frame_bitmap_info.bmiHeader.biCompression = BI_RGB;
+    frame_device_context = CreateCompatibleDC(0);
+
+    static HWND window_handle;
+    window_handle = CreateWindow(window_class_name, L"TestCPlusPlusGame", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320, NULL, NULL, hInstance, NULL);
+    if(window_handle == NULL) { return -1; }
+
+    while(!quit) {
+        static MSG message = { 0 };
+        while(PeekMessage(&message, NULL, 0, 0, PM_REMOVE)) { DispatchMessage(&message); }
+
+        static unsigned int p = 0;
+        //frame.pixels[(p++)%(frame.width*frame.height)] = Rand32();
+        //frame.pixels[Rand32()%(frame.width*frame.height)] = 0xFFFF0000;
+		for(int i = 0; i < std::round(frame.width*frame.height/2); i++) {
+			frame.pixels[Rand32()%(frame.width*frame.height)] = Rand32();
+		}
+
+
+        InvalidateRect(window_handle, NULL, FALSE);
+        UpdateWindow(window_handle);
     }
+
     return 0;
 }
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-    LPSTR lpCmdLine, int nCmdShow)
-{
-    WNDCLASSEX wc;
-    HWND hwnd;
-    MSG Msg;
 
-    wc.cbSize        = sizeof(WNDCLASSEX);
-    wc.style         = 0;
-    wc.lpfnWndProc   = WndProc;
-    wc.cbClsExtra    = 0;
-    wc.cbWndExtra    = 0;
-    wc.hInstance     = hInstance;
-    wc.hIcon         = LoadIcon(NULL, IDI_APPLICATION);
-    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
-    wc.lpszMenuName  = NULL;
-    wc.lpszClassName = g_szClassName;
-    wc.hIconSm       = LoadIcon(NULL, IDI_APPLICATION);
+LRESULT CALLBACK WindowProcessMessage(HWND window_handle, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch(message) {
+        case WM_QUIT:
+        case WM_DESTROY: {
+            quit = true;
+        } break;
 
-    if(!RegisterClassEx(&wc))
-    {
-        MessageBox(NULL, "Window Registration Failed!", "Error!",
-            MB_ICONEXCLAMATION | MB_OK);
-        return 0;
+        case WM_PAINT: {
+            static PAINTSTRUCT paint;
+            static HDC device_context;
+            device_context = BeginPaint(window_handle, &paint);
+            BitBlt(device_context,
+				paint.rcPaint.left, paint.rcPaint.top,
+				paint.rcPaint.right - paint.rcPaint.left, paint.rcPaint.bottom - paint.rcPaint.top,
+				frame_device_context,
+				paint.rcPaint.left, paint.rcPaint.top,
+				SRCCOPY);
+            EndPaint(window_handle, &paint);
+        } break;
+
+        case WM_SIZE: {
+            frame_bitmap_info.bmiHeader.biWidth  = LOWORD(lParam);
+            frame_bitmap_info.bmiHeader.biHeight = HIWORD(lParam);
+
+            if(frame_bitmap) DeleteObject(frame_bitmap);
+            frame_bitmap = CreateDIBSection(NULL, &frame_bitmap_info, DIB_RGB_COLORS, (void**)&frame.pixels, 0, 0);
+            SelectObject(frame_device_context, frame_bitmap);
+
+            frame.width =  LOWORD(lParam);
+            frame.height = HIWORD(lParam);
+        } break;
+
+        default: {
+            return DefWindowProc(window_handle, message, wParam, lParam);
+        }
     }
-
-    hwnd = CreateWindowEx(
-        WS_EX_CLIENTEDGE,
-        g_szClassName,
-        "☣ Test C plus plus GAME! ☣",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
-        NULL, NULL, hInstance, NULL);
-
-    if(hwnd == NULL)
-    {
-        MessageBox(NULL, "Window Creation Failed!", "Error!",
-            MB_ICONEXCLAMATION | MB_OK);
-        return 0;
-    }
-
-    ShowWindow(hwnd, nCmdShow);
-    UpdateWindow(hwnd);
-
-    while(GetMessage(&Msg, NULL, 0, 0) > 0)
-    {
-        TranslateMessage(&Msg);
-        DispatchMessage(&Msg);
-    }
-    return Msg.wParam;
+    return 0;
 }
