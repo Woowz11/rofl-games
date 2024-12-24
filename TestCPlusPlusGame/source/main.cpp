@@ -1,10 +1,8 @@
 #include <iostream>
-using namespace std;
-
-void StartGame();
+#include <math.h>
 
 int main()
 {
-	StartGame();
+	std::cout << std::numbers::pi << std::endl;
     return 0;
 }

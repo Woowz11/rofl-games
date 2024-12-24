@@ -1,4 +1,4 @@
 @echo off
-g++ source/main.cpp source/gamemain.cpp source/base.cpp -o TestCPlusPlusGame
+g++ -std=c++23 source/main.cpp -o TestCPlusPlusGame
 ECHO Finished!
 @Pause
