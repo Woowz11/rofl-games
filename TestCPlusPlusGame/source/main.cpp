@@ -10,12 +10,21 @@
 
 static bool quit = false;
 static int prikoltype = 0;
+static bool withsound = false;
 std::map<int, std::string> prikols = {
-        {0, "Fake Yellow (Red & Green)"},
-        {1, "Random Colors"},
-        {2, "Blue-violet Striped Gradient"},
-		{3, "Green Pixels"},
-		{4, "Yellow with Rare Purple"}
+        {0 , "Fake Yellow (Red & Green)"},
+        {1 , "Random Colors"},
+        {2 , "Blue-violet Striped Gradient"},
+		{3 , "Green Pixels"},
+		{4 , "Yellow with Rare Purple"},
+		{5 , "Cool Three Color Gradient"},
+		{6 , "Red-Green Stripes"},
+		{7 , "Metal Wall"},
+		{8 , "Green-Purple Gradient"},
+		{9 , "Color TV Strips"},
+		{10, "Orange-Blue Long Stripes"},
+		{11, "Linear Noise"},
+		{12, "Wood"}
     };
 
 struct {
@@ -58,6 +67,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
         std::cin >> number;
     } while (number < 0 || number > prikols.size() - 1);
 	prikoltype = number;
+	int number2;
+	do {
+        std::cout << "===- SO SVUKOM? -===" << std::endl;
+		std::cout << "0 - NO, 1 - YES" << std::endl;
+        std::cin >> number2;
+    } while (number2 < 0 || number2 > 1);
+	withsound = (number2==1);
 	
     const wchar_t window_class_name[] = L"My Window Class";
     static WNDCLASS window_class = { 0 };
@@ -81,6 +97,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
         while(PeekMessage(&message, NULL, 0, 0, PM_REMOVE)) { DispatchMessage(&message); }
 
 		static unsigned int p = 0;
+		static double u = 0;
+		static int s = 100; /* 37 - 32767 */
 		int width = frame.width;
 		int height = frame.height;
 		int framesize = width*height;
@@ -95,12 +113,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
 						frame.pixels[pos] = ToColor(0,1,0);
 					}
 				}
+				s = 400;
 				break;
 			case 1:
 				for(int i = 0; i < 100; i++){
 					int pos = Rand32()%(framesize);
 					frame.pixels[pos] = Rand32();
 				}
+				s = std::round(Rand01()*1000);
 				break;
 			case 2:
 				for(int i = 0; i < 100; i++){
@@ -108,6 +128,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
 					double d = (double)pos/(double)framesize;
 					double d2 = (double)i/100;
 					frame.pixels[pos] = ToColor(d,0,d2);
+				}
+				s+=10;
+				if(s>1000){
+					s = 100;
 				}
 				break;
 			case 3:
@@ -129,8 +153,153 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, 
 					}
 				}
 				break;
+			case 5:
+				for(int i = 0; i < 100; i++){
+					if(Rand01() > 0.5){
+						p -= 25;
+					}else{
+						p += 100;
+					}
+					int pos = p%(framesize);
+					double d = (double)p/(double)framesize;
+					double d2 = (double)pos/(double)framesize;
+					frame.pixels[pos] = ToColor(d,std::abs(d-0.5),d2);
+				}
+				break;
+			case 6:
+				for(int i = 0; i < 100; i++){
+					double r = 0;
+					double g = 0;
+					if(Rand01() > 0.5){
+						p -= 100;
+						r = 1;
+					}else{
+						p += 10000;
+						g = 1;
+					}
+					int pos = p%(framesize);
+					frame.pixels[pos] = ToColor(r,g,0);
+				}
+				break;
+			case 7:
+				for(int i = 0; i < 100; i++){
+					if(Rand01() > 0.99){
+						p++;
+					}else{
+						p *= 2;
+						u += 0.1;
+						if(u > 1){
+							u = 0;
+						}
+					}
+					int pos = p%(framesize);
+					double d = (double)pos/(double)framesize;
+					frame.pixels[pos] = ToColor(u,d,d);
+				}
+				break;
+			case 8:
+				for(int i = 0; i < 100; i++){
+					int pos = Rand32()%(framesize);
+					if(pos%8){
+						u += 0.1;
+					}else{
+						u -= 0.1;
+					}
+					if(u > 1){
+						u = 0;
+					}
+					if(u < 0){
+						u = 1;
+					}
+					double d = (double)pos/(double)framesize;
+					frame.pixels[pos] = ToColor(d,u,d);
+				}
+				break;
+			case 9:
+				for(int i = 0; i < 100; i++){
+					if(Rand01() > 0.99){
+						p = Rand32();
+						u *= 1.1;
+					}else{
+						p++;
+						u += 0.1;
+					}
+					int pos = p%(framesize);
+					if(u>1){
+						u = 0;
+					}
+					double d = (double)pos/(double)framesize;
+					frame.pixels[pos] = ToColor(u,d,(double)pos/(double)height);
+				}
+				break;
+			case 10:
+				for(int i = 0; i < framesize; i++){
+					if(Rand01() > 0.5){
+						u += 0.01;
+					}else{
+						u -= 0.01;
+					}
+					if(u > 1){
+						u = 0;
+					}
+					if(u < 0){
+						u = 1;
+					}
+					frame.pixels[i] = ToColor(u,std::abs(u-0.5),std::abs(u-1));
+				}
+				break;
+			case 11:
+				for(int i = 0; i < framesize; i++){
+					if(Rand01() > 0.5){
+						u += 0.001;
+					}else{
+						u -= 0.001;
+					}
+					if(u > 1){
+						u = 1;
+					}
+					if(u < 0){
+						u = 0;
+					}
+					frame.pixels[i] = ToColor(u,u,u);
+				}
+				break;
+			case 12:
+				for(int i = 0; i < framesize; i++){
+					int pos = i;
+					double g = 0;
+					double b = 0;
+					double rand_ = Rand01();
+					if(rand_ > 0.75){
+						pos++;
+						u += 0.01;
+					}else if(rand_ > 0.5){
+						pos--;
+						b = 1;
+					}
+					else if(rand_ > 0.25){
+						pos *= 2;
+						g = 1;
+					}
+					else{
+						pos = Rand32()%(framesize);
+						g = 0.5;
+						b = 0.5;
+					}
+					if(u > 1){
+						u = Rand01();
+					}
+					frame.pixels[i] = ToColor(u,g,b);
+				}
+				break;
 			default:
 				break;
+		}
+
+		if(s>32767){s = 0;}
+		if(s<37){s = 32767;}
+		if(withsound){
+			Beep( s, 200 );
 		}
 
         InvalidateRect(window_handle, NULL, FALSE);
