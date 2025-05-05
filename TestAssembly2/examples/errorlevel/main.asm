@@ -1,8 +1,9 @@
 .code
 
 main proc
-	mov rdx, 5
-	mov rax, rdx
+	
+	mov rax, 33
+	
 	ret
 main endp
 
