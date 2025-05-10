@@ -1,33 +1,25 @@
 org 0x7c00
 start:
 
-	mov si, sexProfessionalLimitWordOpaHopaDopaBypa
+	mov ah, 0x00
+	int 0x16
+	mov [pressedkey], al
 	
-	call print
+	cmp al, 13
+	je pressed_enter
 	
-	call newline
-	
-	mov si, sexProfessionalLimitWordOpaHopaDopaBypa2
-	
-	call print
-	
-	call newline
-	
-	mov si, sexProfessionalLimitWordOpaHopaDopaBypa
-	
-	call print
-	
-	call newline
-	
-	mov si, sexProfessionalLimitWordOpaHopaDopaBypa3
-	
-	call print
+	mov ah, 0x0E
+	mov al, [pressedkey]
+	int 0x10
 
-jmp $
+jmp start
 
-sexProfessionalLimitWordOpaHopaDopaBypa db 'sosat ia novii razrabotchik vindi, call me +7-925-631-74-12', 0
-sexProfessionalLimitWordOpaHopaDopaBypa2 db 'ti ymer', 0
-sexProfessionalLimitWordOpaHopaDopaBypa3 db 'Вариант 2: установить\n через MSYS2 Установи MSYS2 Запусти MSYS2 MinGW 32-bit или MSYS2 UCRT64', 0
+pressed_enter:
+	call newline
+	jmp start
+
+pressedkey db 0
+hellostring db 'PRINT TEXT NIGGA:', 0
 
 print:
 	strLoop:
