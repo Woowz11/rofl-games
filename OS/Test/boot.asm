@@ -1,28 +1,46 @@
 org 0x7c00
 start:
-	mov cx, 10
+
+	mov si, sexProfessionalLimitWordOpaHopaDopaBypa
 	
-	forLoop:
-	cmp cx, 0
-	je endLoop
-	
-	push cx
-	
-	push cx
-	call hprint
-	
-	;mov ax, 0xDEAD
-	;push ax
-	;call hprint
+	call print
 	
 	call newline
 	
-	pop cx
+	mov si, sexProfessionalLimitWordOpaHopaDopaBypa2
 	
-	dec cx
-	jmp forLoop
-	endLoop:
+	call print
+	
+	call newline
+	
+	mov si, sexProfessionalLimitWordOpaHopaDopaBypa
+	
+	call print
+	
+	call newline
+	
+	mov si, sexProfessionalLimitWordOpaHopaDopaBypa3
+	
+	call print
+
 jmp $
+
+sexProfessionalLimitWordOpaHopaDopaBypa db 'sosat ia novii razrabotchik vindi, call me +7-925-631-74-12', 0
+sexProfessionalLimitWordOpaHopaDopaBypa2 db 'ti ymer', 0
+sexProfessionalLimitWordOpaHopaDopaBypa3 db 'Вариант 2: установить\n через MSYS2 Установи MSYS2 Запусти MSYS2 MinGW 32-bit или MSYS2 UCRT64', 0
+
+print:
+	strLoop:
+	cmp byte [si], 0
+	je endStrLoop
+	
+	mov al, byte [si]
+	mov ah, 0x0e
+	int 0x10
+	inc si
+	jmp strLoop
+	endStrLoop:
+ret
 
 hprint:
 	push bp
