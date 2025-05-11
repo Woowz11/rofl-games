@@ -1,117 +1,90 @@
-org 0x7C00
+[org 0x7c00]                        
+KERNEL_LOCATION equ 0x1000
+                                    
 
-start:
-	; графический режим (320x200, 256 цветов)
-	mov ax, 0x13
-	int 0x10
-	
-	jmp cycle
+mov [BOOT_DISK], dl                 
 
-cycle:
-	call render
-	
-	; задержка 1 микросекунда
-	mov ah, 0x86
-    mov cx, 0x00
-    mov dx, 0x01
-    int 0x15
-	
-	jmp cycle
+                                    
+xor ax, ax                          
+mov es, ax
+mov ds, ax
+mov bp, 0x8000
+mov sp, bp
 
-render:
-	;mov al, 4
-	;call drawbackground
+mov bx, KERNEL_LOCATION
+mov dh, 2
 
-	;mov cx, 50
-	;mov dx, 50
-	;mov al, 5
-	;call drawpixel
-	
-	push cx
-	push dx
-	
-	mov cx, 320
-	doLoopX2:
-		cmp cx, -1
-		je endLoopX2
-		
-		mov dx, 200
-		doLoopY2:
-			cmp dx, -1
-			je endLoopY2
-			
-			mov al, cl
-			push cx
-			push dx
-			call drawpixel
-			pop dx
-			pop cx
-			
-			dec dx
-			jmp doLoopY2
-		endLoopY2:
-		
-		dec cx
-		jmp doLoopX2
-	endLoopX2:
-	
-	pop dx
-	pop cx
-ret
+mov ah, 0x02
+mov al, dh 
+mov ch, 0x00
+mov dh, 0x00
+mov cl, 0x02
+mov dl, [BOOT_DISK]
+int 0x13                ; no error management, do your homework!
 
-; [рисует задний фон] al - цвет фона
-drawbackground:
-	push cx
-	push dx
-	
-	mov cx, 320
-	doLoopX:
-		cmp cx, -1
-		je endLoopX
-		
-		mov dx, 200
-		doLoopY:
-			cmp dx, -1
-			je endLoopY
-			
-			push cx
-			push dx
-			call drawpixel
-			pop dx
-			pop cx
-			
-			dec dx
-			jmp doLoopY
-		endLoopY:
-		
-		dec cx
-		jmp doLoopX
-	endLoopX:
-	
-	pop dx
-	pop cx
-ret
+                                    
+mov ah, 0x0
+mov al, 0x3
+int 0x10                ; text mode
 
-; [рисует пиксель] cx - x координата, dx - y координата, al - цвет пикселя
-drawpixel:
-	push ax
-	push bx
 
-	mov ax, 0xA000
+CODE_SEG equ GDT_code - GDT_start
+DATA_SEG equ GDT_data - GDT_start
+
+cli
+lgdt [GDT_descriptor]
+mov eax, cr0
+or eax, 1
+mov cr0, eax
+jmp CODE_SEG:start_protected_mode
+
+jmp $
+                                    
+BOOT_DISK: db 0
+
+GDT_start:
+    GDT_null:
+        dd 0x0
+        dd 0x0
+
+    GDT_code:
+        dw 0xffff
+        dw 0x0
+        db 0x0
+        db 0b10011010
+        db 0b11001111
+        db 0x0
+
+    GDT_data:
+        dw 0xffff
+        dw 0x0
+        db 0x0
+        db 0b10010010
+        db 0b11001111
+        db 0x0
+
+GDT_end:
+
+GDT_descriptor:
+    dw GDT_end - GDT_start - 1
+    dd GDT_start
+
+
+[bits 32]
+start_protected_mode:
+    mov ax, DATA_SEG
+	mov ds, ax
+	mov ss, ax
 	mov es, ax
-	mov di, 0
+	mov fs, ax
+	mov gs, ax
 	
-	mov ax, dx
-	mov bx, 320
-	mul bx
-	add ax, cx
-	mov di, ax
-	
-	pop bx
-	pop ax
-	
-	mov [es:di], al
-ret
+	mov ebp, 0x90000		; 32 bit stack base pointer
+	mov esp, ebp
 
-times 510-($-$$) db 0
-dw 0XAA55
+    jmp KERNEL_LOCATION
+
+                                     
+ 
+times 510-($-$$) db 0              
+dw 0xaa55
