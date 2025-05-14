@@ -197,15 +197,15 @@ console_keypress:
 	ret
 
 ; Очищает консоль
-string_startmessage db 'Welcome to Woowz-Test OS', 0
+string_startmessage db 'Woowz-Test OS ', 0
 clear_console:
 	call clear_screen
 
-	mov cx, 28
+	mov cx, 33
 	call .space
 	mov si, string_startmessage
 	call print_string
-	mov cx, 28
+	mov cx, 33
 	call .space
 	
 	mov al, 2
