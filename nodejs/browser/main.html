@@ -1,64 +1,135 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <style>
-        #toolbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: #f0f0f0;
-            padding: 10px;
-            display: flex;
-            gap: 10px;
-        }
-        #webview {
-            position: absolute;
-            top: 50px;
-            left: 0;
-            right: 0;
-            bottom: 0;
-        }
-    </style>
+	<meta charset="UTF-8">
+	<style>
+
+body{
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	height: 100vh;
+	overflow: hidden;
+}
+
+#top{
+	display: flex;
+	align-items: center;
+	height: 30px;
+	background: white;
+	padding: 5px;
+	gap: 3px;
+	-webkit-app-region: drag;
+}
+
+#pages{
+	height: 30px;
+	background: gray;
+}
+
+#webview{
+	flex-grow: 1;
+}
+
+#bottom{
+	height: 20px;
+	background: white;
+	padding: 5px;
+	-webkit-app-region: drag;
+}
+
+.button-circle{
+	width : 30px;
+	height: 30px;
+	border-radius: 50%;
+	background-color: #007BFF;
+	color: white;
+	border: none;
+	font-size: 20px;
+	cursor: pointer;
+	-webkit-app-region: no-drag;
+}
+.button-circle:hover{
+	background-color: #0056b3;
+}
+
+.button-square{
+	width : 30px;
+	height: 30px;
+	border-radius: 25%;
+	background-color: #007BFF;
+	color: white;
+	border: none;
+	font-size: 20px;
+	cursor: pointer;
+	-webkit-app-region: no-drag;
+}
+.button-square:hover{
+	background-color: #0056b3;
+}
+
+.do-center{
+	margin-left : auto;
+	margin-right: auto;
+}
+
+	</style>
 </head>
 <body>
-    <div id="toolbar">
-        <button onclick="goBack()">Назад</button>
-        <button onclick="goForward()">Вперед</button>
-        <button onclick="reloadPage()">Обновить</button>
-        <input type="text" id="urlInput" placeholder="Введите URL">
-        <button onclick="navigate()">Перейти</button>
-    </div>
-    <webview id="webview" src="https://www.google.com/" allowpopups nodeintegration webpreferences="contextIsolation=no"></webview>
+	<div id="top">
+		<button onclick="B_Back()" class="button-circle">&lt;</button>
+		<button onclick="B_Next()" class="button-circle">&gt;</button>
+		<!-- <button onclick="reloadPage()">Обновить</button>
+		<input type="text" id="urlInput" placeholder="Введите URL">
+		<button onclick="navigate()">Перейти</button> -->
+		
+		<button onclick="" class="do-center">_</button>
+		
+		<button onclick="B_Minimize()" class="button-square">_</button>
+		<button onclick="B_Maximize()" class="button-square">□</button>
+		<button onclick="B_Quit()    " class="button-square">X</button>
+	</div>
+	<div id="pages"></div>
+	<webview id="webview" src="https://www.google.com/" allowpopups nodeintegration webpreferences="contextIsolation=no">6</webview>
+	<div id="bottom">
 
-    <script>
-        const webview = document.getElementById('webview');
-        const urlInput = document.getElementById('urlInput');
+	</div>
 
-        // Обновляем текстовое поле при изменении URL в WebView
-        webview.addEventListener('did-navigate', (event) => {
-            urlInput.value = event.url;
-        });
+	<script>
+const WEB = document.getElementById("webview");	
+const { ipcRenderer } = require("electron");
 
-        function goBack() {
-            webview.goBack();
-        }
+function B_Back    (){ WEB.goBack                  (); }
+function B_Next    (){ WEB.goForward               (); }
+function B_Minimize(){ ipcRenderer.send("B_Minimize"); }
+function B_Maximize(){ ipcRenderer.send("B_Maximize"); }
+function B_Quit    (){ ipcRenderer.send("B_Quit"    ); }
+	
+		/*const webview = document.getElementById('webview');
+		const urlInput = document.getElementById('urlInput');
 
-        function goForward() {
-            webview.goForward();
-        }
+		webview.addEventListener('did-navigate', (event) => {
+			urlInput.value = event.url;
+		});
 
-        function reloadPage() {
-            webview.reload();
-        }
+		function goBack() {
+			webview.goBack();
+		}
 
-        function navigate() {
-            const url = urlInput.value;
-            if (url) {
-                webview.src = url.startsWith('http://') || url.startsWith('https://') ? url : `http://${url}`;
-            }
-        }
-    </script>
+		function goForward() {
+			webview.goForward();
+		}
+
+		function reloadPage() {
+			webview.reload();
+		}
+
+		function navigate() {
+			const url = urlInput.value;
+			if (url) {
+				webview.src = url.startsWith('http://') || url.startsWith('https://') ? url : `http://${url}`;
+			}
+		}*/
+	</script>
 </body>
 </html>

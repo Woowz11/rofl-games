@@ -1,2 +1,1 @@
-npm build
-pause
+npm run build
