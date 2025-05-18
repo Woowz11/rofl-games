@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        #toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #f0f0f0;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        #webview {
+            position: absolute;
+            top: 50px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <button onclick="goBack()">Назад</button>
+        <button onclick="goForward()">Вперед</button>
+        <button onclick="reloadPage()">Обновить</button>
+        <input type="text" id="urlInput" placeholder="Введите URL">
+        <button onclick="navigate()">Перейти</button>
+    </div>
+    <webview id="webview" src="https://www.google.com/" allowpopups nodeintegration webpreferences="contextIsolation=no"></webview>
+
+    <script>
+        const webview = document.getElementById('webview');
+        const urlInput = document.getElementById('urlInput');
+
+        // Обновляем текстовое поле при изменении URL в WebView
+        webview.addEventListener('did-navigate', (event) => {
+            urlInput.value = event.url;
+        });
+
+        function goBack() {
+            webview.goBack();
+        }
+
+        function goForward() {
+            webview.goForward();
+        }
+
+        function reloadPage() {
+            webview.reload();
+        }
+
+        function navigate() {
+            const url = urlInput.value;
+            if (url) {
+                webview.src = url.startsWith('http://') || url.startsWith('https://') ? url : `http://${url}`;
+            }
+        }
+    </script>
+</body>
+</html>
