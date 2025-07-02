@@ -1,0 +1,33 @@
+[
+  {
+    "name": "java.awt.Toolkit",
+    "methods": [
+      {"name": "<init>", "parameterTypes": []},
+      {"name": "getDefaultToolkit", "parameterTypes": []}
+    ]
+  },
+  {
+    "name": "java.awt.GraphicsEnvironment",
+    "methods": [
+      {"name": "getLocalGraphicsEnvironment", "parameterTypes": []}
+    ]
+  },
+  {
+    "name": "javax.swing.UIManager",
+    "methods": [
+      {"name": "getSystemLookAndFeel", "parameterTypes": []}
+    ]
+  },
+  {
+    "name": "sun.awt.Win32GraphicsEnvironment",
+    "methods": [
+      {"name": "<init>", "parameterTypes": []}
+    ]
+  },
+  {
+    "name": "sun.java2d.SunGraphics2D",
+    "methods": [
+      {"name": "<init>", "parameterTypes": ["java.awt.Graphics2D", "java.awt.Color", "java.awt.Color", "java.awt.Font"]}
+    ]
+  }
+]
