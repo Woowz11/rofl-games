@@ -1,0 +1,60 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "WoowzVST/1.0.0": {
+        "dependencies": {
+          "AudioPlugSharp": "0.7.9",
+          "AudioPlugSharpVst3": "0.7.9"
+        },
+        "runtime": {
+          "WoowzVST.dll": {}
+        }
+      },
+      "AudioPlugSharp/0.7.9": {
+        "runtime": {
+          "lib/net8.0/AudioPlugSharp.dll": {
+            "assemblyVersion": "0.7.9.0",
+            "fileVersion": "0.7.9.0"
+          }
+        }
+      },
+      "AudioPlugSharpVst3/0.7.9": {
+        "dependencies": {
+          "AudioPlugSharp": "0.7.9"
+        },
+        "runtime": {
+          "lib/net8.0/AudioPlugSharpVst3.dll": {
+            "assemblyVersion": "0.7.9.0",
+            "fileVersion": "0.7.9.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "WoowzVST/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "AudioPlugSharp/0.7.9": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-xLfbkt1RbAtZzqT53vMiIdlprPw0LUvYneOPmjd9MBXLyevEe9XqJa7T4tqFMyqJKBg8BzQ6LuGXavznbEnRWw==",
+      "path": "audioplugsharp/0.7.9",
+      "hashPath": "audioplugsharp.0.7.9.nupkg.sha512"
+    },
+    "AudioPlugSharpVst3/0.7.9": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-nnAAZjtW2c0cjZshj74nY275vyVMqrKw3eCdnQ9V3ef1LgtOmNqjm6bqXgiyoJlBK1fzFLrCUEK792HHk4Xt5Q==",
+      "path": "audioplugsharpvst3/0.7.9",
+      "hashPath": "audioplugsharpvst3.0.7.9.nupkg.sha512"
+    }
+  }
+}
