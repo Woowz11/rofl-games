@@ -8,17 +8,17 @@
     ".NETCoreApp,Version=v8.0": {
       "WoowzVST/1.0.0": {
         "dependencies": {
-          "AudioPlugSharp": "0.7.9"
+          "SharpSoundDevice": "1.5.2.40816"
         },
         "runtime": {
           "WoowzVST.dll": {}
         }
       },
-      "AudioPlugSharp/0.7.9": {
+      "SharpSoundDevice/1.5.2.40816": {
         "runtime": {
-          "lib/net8.0/AudioPlugSharp.dll": {
-            "assemblyVersion": "0.7.9.0",
-            "fileVersion": "0.7.9.0"
+          "SharpSoundDevice.dll": {
+            "assemblyVersion": "1.5.2.40816",
+            "fileVersion": "1.5.2.40816"
           }
         }
       }
@@ -30,12 +30,10 @@
       "serviceable": false,
       "sha512": ""
     },
-    "AudioPlugSharp/0.7.9": {
-      "type": "package",
-      "serviceable": true,
-      "sha512": "sha512-xLfbkt1RbAtZzqT53vMiIdlprPw0LUvYneOPmjd9MBXLyevEe9XqJa7T4tqFMyqJKBg8BzQ6LuGXavznbEnRWw==",
-      "path": "audioplugsharp/0.7.9",
-      "hashPath": "audioplugsharp.0.7.9.nupkg.sha512"
+    "SharpSoundDevice/1.5.2.40816": {
+      "type": "reference",
+      "serviceable": false,
+      "sha512": ""
     }
   }
 }

@@ -1,76 +1,11 @@
 {
   "version": 3,
   "targets": {
-    "net8.0": {
-      "AudioPlugSharp/0.7.9": {
-        "type": "package",
-        "compile": {
-          "lib/net8.0/AudioPlugSharp.dll": {}
-        },
-        "runtime": {
-          "lib/net8.0/AudioPlugSharp.dll": {}
-        },
-        "build": {
-          "build/AudioPlugSharp.targets": {}
-        }
-      },
-      "AudioPlugSharpVst3/0.7.9": {
-        "type": "package",
-        "dependencies": {
-          "AudioPlugSharp": "0.7.9"
-        },
-        "compile": {
-          "lib/net8.0/AudioPlugSharpVst3.dll": {}
-        },
-        "runtime": {
-          "lib/net8.0/AudioPlugSharpVst3.dll": {}
-        },
-        "build": {
-          "build/AudioPlugSharpVst3.targets": {}
-        }
-      }
-    }
+    "net8.0-windows7.0": {}
   },
-  "libraries": {
-    "AudioPlugSharp/0.7.9": {
-      "sha512": "xLfbkt1RbAtZzqT53vMiIdlprPw0LUvYneOPmjd9MBXLyevEe9XqJa7T4tqFMyqJKBg8BzQ6LuGXavznbEnRWw==",
-      "type": "package",
-      "path": "audioplugsharp/0.7.9",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "README.md",
-        "audioplugsharp.0.7.9.nupkg.sha512",
-        "audioplugsharp.nuspec",
-        "build/AudioPlugSharp.targets",
-        "lib/net8.0/AudioPlugSharp.dll"
-      ]
-    },
-    "AudioPlugSharpVst3/0.7.9": {
-      "sha512": "nnAAZjtW2c0cjZshj74nY275vyVMqrKw3eCdnQ9V3ef1LgtOmNqjm6bqXgiyoJlBK1fzFLrCUEK792HHk4Xt5Q==",
-      "type": "package",
-      "path": "audioplugsharpvst3/0.7.9",
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "README.md",
-        "audioplugsharpvst3.0.7.9.nupkg.sha512",
-        "audioplugsharpvst3.nuspec",
-        "build/AudioPlugSharpVst3.targets",
-        "contentFiles/desktop.runtimeconfig.json",
-        "contentFiles/other/Ijwhost.dll",
-        "contentFiles/vst/AudioPlugSharpVst.deps.json",
-        "contentFiles/vst/AudioPlugSharpVst.runtimeconfig.json",
-        "contentFiles/vst/AudioPlugSharpVst.vst3",
-        "lib/net8.0/AudioPlugSharpVst3.dll"
-      ]
-    }
-  },
+  "libraries": {},
   "projectFileDependencyGroups": {
-    "net8.0": [
-      "AudioPlugSharp >= 0.7.9",
-      "AudioPlugSharpVst3 >= 0.7.9"
-    ]
+    "net8.0-windows7.0": []
   },
   "packageFolders": {
     "C:\\Users\\Woowz11\\.nuget\\packages\\": {}
@@ -88,14 +23,14 @@
         "Z:\\AppData\\Roaming\\NuGet\\NuGet.Config"
       ],
       "originalTargetFrameworks": [
-        "net8.0"
+        "net8.0-windows"
       ],
       "sources": {
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
-        "net8.0": {
-          "targetAlias": "net8.0",
+        "net8.0-windows7.0": {
+          "targetAlias": "net8.0-windows",
           "projectReferences": {}
         }
       },
@@ -111,18 +46,8 @@
       }
     },
     "frameworks": {
-      "net8.0": {
-        "targetAlias": "net8.0",
-        "dependencies": {
-          "AudioPlugSharp": {
-            "target": "Package",
-            "version": "[0.7.9, )"
-          },
-          "AudioPlugSharpVst3": {
-            "target": "Package",
-            "version": "[0.7.9, )"
-          }
-        },
+      "net8.0-windows7.0": {
+        "targetAlias": "net8.0-windows",
         "imports": [
           "net461",
           "net462",
@@ -137,6 +62,9 @@
         "frameworkReferences": {
           "Microsoft.NETCore.App": {
             "privateAssets": "all"
+          },
+          "Microsoft.WindowsDesktop.App.WindowsForms": {
+            "privateAssets": "none"
           }
         },
         "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.416/PortableRuntimeIdentifierGraph.json"

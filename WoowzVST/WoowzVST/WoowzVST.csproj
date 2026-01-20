@@ -1,16 +1,20 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFramework>net8.0-windows</TargetFramework>
         <Nullable>enable</Nullable>
         <Configurations>Release</Configurations>
         <Platforms>AnyCPU</Platforms>
-        <RootNamespace>TestVST</RootNamespace>
+        <PlatformTarget>x64</PlatformTarget>
+        <OutputType>Library</OutputType>
+        <UseWindowsForms>true</UseWindowsForms>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="AudioPlugSharp" Version="0.7.9" />
-      <PackageReference Include="AudioPlugSharpVst3" Version="0.7.9" />
+        <Reference Include="SharpSoundDevice">
+            <HintPath>W:\Other\rofl-games\WoowzVST\WoowzVST\ssd\SharpSoundDevice.dll</HintPath>
+        </Reference>
     </ItemGroup>
 
 </Project>

@@ -13,10 +13,12 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WoowzVST")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+655f79fb3f5555df2de3fe5237af089519a39a22")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d6763b2016344b7e338a03601a43be1f66699f22")]
 [assembly: System.Reflection.AssemblyProductAttribute("WoowzVST")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WoowzVST")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
+[assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows7.0")]
+[assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows7.0")]
 
 // Создано классом WriteCodeFragment MSBuild.
 

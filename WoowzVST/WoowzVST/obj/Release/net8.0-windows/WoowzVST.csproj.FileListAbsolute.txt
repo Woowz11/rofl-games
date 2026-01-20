@@ -1,0 +1,17 @@
+W:\Other\rofl-games\WoowzVST\WoowzVST\bin\Release\net8.0-windows\WoowzVST.deps.json
+W:\Other\rofl-games\WoowzVST\WoowzVST\bin\Release\net8.0-windows\WoowzVST.dll
+W:\Other\rofl-games\WoowzVST\WoowzVST\bin\Release\net8.0-windows\WoowzVST.pdb
+W:\Other\rofl-games\WoowzVST\WoowzVST\bin\Release\net8.0-windows\SharpSoundDevice.dll
+W:\Other\rofl-games\WoowzVST\WoowzVST\bin\Release\net8.0-windows\SharpSoundDevice.pdb
+W:\Other\rofl-games\WoowzVST\WoowzVST\bin\Release\net8.0-windows\SharpSoundDevice.xml
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\WoowzVST.csproj.AssemblyReference.cache
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\WoowzVST.GeneratedMSBuildEditorConfig.editorconfig
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\WoowzVST.AssemblyInfoInputs.cache
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\WoowzVST.AssemblyInfo.cs
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\WoowzVST.csproj.CoreCompileInputs.cache
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\WoowzVST.sourcelink.json
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\WoowzVST.csproj.Up2Date
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\WoowzVST.dll
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\refint\WoowzVST.dll
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\WoowzVST.pdb
+W:\Other\rofl-games\WoowzVST\WoowzVST\obj\Release\net8.0-windows\ref\WoowzVST.dll
