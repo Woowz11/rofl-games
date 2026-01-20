@@ -1,0 +1,15 @@
+W:\Other\rofl-games\TestVST\TestVST\bin\Release\net8.0\AudioPlugSharp.dll
+W:\Other\rofl-games\TestVST\TestVST\bin\Release\net8.0\AudioPlugSharpVst3.dll
+W:\Other\rofl-games\TestVST\TestVST\bin\Release\net8.0\TestVST.deps.json
+W:\Other\rofl-games\TestVST\TestVST\bin\Release\net8.0\TestVST.dll
+W:\Other\rofl-games\TestVST\TestVST\bin\Release\net8.0\TestVST.pdb
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\TestVST.csproj.AssemblyReference.cache
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\TestVST.GeneratedMSBuildEditorConfig.editorconfig
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\TestVST.AssemblyInfoInputs.cache
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\TestVST.AssemblyInfo.cs
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\TestVST.csproj.CoreCompileInputs.cache
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\TestVST.sourcelink.json
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\TestVST.dll
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\refint\TestVST.dll
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\TestVST.pdb
+W:\Other\rofl-games\TestVST\TestVST\obj\Release\net8.0\ref\TestVST.dll

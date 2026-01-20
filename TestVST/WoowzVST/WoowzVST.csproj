@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <Configurations>Release</Configurations>
+        <Platforms>AnyCPU</Platforms>
+        <RootNamespace>TestVST</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="AudioPlugSharp" Version="0.7.9" />
+      <PackageReference Include="AudioPlugSharpVst3" Version="0.7.9" />
+    </ItemGroup>
+
+</Project>

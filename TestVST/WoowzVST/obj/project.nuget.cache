@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "joDQ+CI6Uqw=",
+  "success": true,
+  "projectFilePath": "W:\\Other\\rofl-games\\TestVST\\WoowzVST\\WoowzVST.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Woowz11\\.nuget\\packages\\audioplugsharp\\0.7.9\\audioplugsharp.0.7.9.nupkg.sha512",
+    "C:\\Users\\Woowz11\\.nuget\\packages\\audioplugsharpvst3\\0.7.9\\audioplugsharpvst3.0.7.9.nupkg.sha512"
+  ],
+  "logs": []
+}

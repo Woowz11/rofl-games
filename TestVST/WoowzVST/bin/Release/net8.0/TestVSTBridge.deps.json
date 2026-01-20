@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": "net8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    "net8.0": {
+      "AudioPlugSharpVst/1.0.0.0": {
+        "dependencies": {
+          "AudioPlugSharp": "0.7.3.0"
+        },
+        "runtime": {
+          "AudioPlugSharpVst.vst3": {}
+        }
+      },
+      "AudioPlugSharp/0.7.3.0": {
+        "runtime": {
+          "AudioPlugSharp.dll": {
+            "assemblyVersion": "0.7.3.0",
+            "fileVersion": "0.7.3.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "AudioPlugSharpVst/1.0.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "AudioPlugSharp/0.7.3.0": {
+      "type": "reference",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}
