@@ -1,20 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net8.0-windows</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
         <Nullable>enable</Nullable>
         <Configurations>Release</Configurations>
-        <Platforms>AnyCPU</Platforms>
-        <PlatformTarget>x64</PlatformTarget>
-        <OutputType>Library</OutputType>
-        <UseWindowsForms>true</UseWindowsForms>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <OutputType>Exe</OutputType>
     </PropertyGroup>
 
     <ItemGroup>
-        <Reference Include="SharpSoundDevice">
-            <HintPath>W:\Other\rofl-games\WoowzVST\WoowzVST\ssd\SharpSoundDevice.dll</HintPath>
-        </Reference>
+      <PackageReference Include="NAudio" Version="2.2.1" />
     </ItemGroup>
 
 </Project>
