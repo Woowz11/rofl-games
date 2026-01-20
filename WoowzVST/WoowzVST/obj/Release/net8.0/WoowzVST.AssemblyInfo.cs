@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WoowzVST")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+79c3353adeb3cdfb38dc2a947e2a8df8bd6dc2b3")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a1b5710daea69b77121facf73bc5f2d7835c073e")]
 [assembly: System.Reflection.AssemblyProductAttribute("WoowzVST")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WoowzVST")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
