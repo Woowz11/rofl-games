@@ -8,69 +8,62 @@ class Program
     {
         var enumerator = new MMDeviceEnumerator();
 
-        // 1️⃣ Захват с CABLE Output (запись)
-        MMDevice cableOutput = null;
-        foreach (var dev in enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active))
-        {
-            if (dev.FriendlyName.Contains("CABLE Output"))
-            {
-                cableOutput = dev;
-                break;
-            }
-        }
-
-        if (cableOutput == null)
-        {
-            Console.WriteLine("CABLE Output не найден!");
-            return;
-        }
-
+        // Захват с виртуального кабеля
+        var cableOutput = GetDevice(enumerator, DataFlow.Capture, "CABLE Output");
+        if (cableOutput == null) { Console.WriteLine("CABLE Output не найден!"); return; }
         Console.WriteLine($"Захват с кабеля: {cableOutput.FriendlyName}");
 
-        // 2️⃣ Физические колонки
-        MMDevice speakers = null;
-        foreach (var dev in enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
-        {
-            if (dev.FriendlyName.Contains("Динамики"))
-            {
-                speakers = dev;
-                break;
-            }
-        }
-
-        if (speakers == null)
-        {
-            Console.WriteLine("Колонки не найдены!");
-            return;
-        }
-
+        // Вывод на физические колонки
+        var speakers = GetDevice(enumerator, DataFlow.Render, "Динамики");
+        if (speakers == null) { Console.WriteLine("Колонки не найдены!"); return; }
         Console.WriteLine($"Вывод на: {speakers.FriendlyName}");
 
-        // 3️⃣ Захват
         var capture = new WasapiCapture(cableOutput);
-        var buffer = new BufferedWaveProvider(capture.WaveFormat)
-        {
-            DiscardOnBufferOverflow = true
-        };
+        capture.ShareMode = AudioClientShareMode.Shared;
+
+        var buffer = new BufferedWaveProvider(capture.WaveFormat) { DiscardOnBufferOverflow = true };
 
         capture.DataAvailable += (s, e) =>
         {
-            buffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
+            if (capture.WaveFormat.Encoding != WaveFormatEncoding.IeeeFloat) return;
+
+            float[] floatBuffer = new float[e.BytesRecorded / 4];
+            Buffer.BlockCopy(e.Buffer, 0, floatBuffer, 0, e.BytesRecorded);
+
+            ProcessAudio(floatBuffer);
+
+            byte[] outBytes = new byte[e.BytesRecorded];
+            Buffer.BlockCopy(floatBuffer, 0, outBytes, 0, e.BytesRecorded);
+            buffer.AddSamples(outBytes, 0, outBytes.Length);
         };
 
-        // 4️⃣ Вывод на колонки
         using var waveOut = new WasapiOut(speakers, AudioClientShareMode.Shared, false, 100);
         waveOut.Init(buffer);
 
         capture.StartRecording();
         waveOut.Play();
 
-        Console.WriteLine("Идёт звук с CABLE Input через CABLE Output → колонки. Enter для выхода...");
+        Console.WriteLine("Эффект включен! Enter для выхода...");
         Console.ReadLine();
 
         capture.StopRecording();
         waveOut.Stop();
         capture.Dispose();
         Console.WriteLine("Готово!");
+    }
+    
+    static MMDevice GetDevice(MMDeviceEnumerator enumerator, DataFlow flow, string nameContains){
+        foreach (var dev in enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active))
+            if (dev.FriendlyName.Contains(nameContains))
+                return dev;
+        return null;
+    }
+    
+    static void ProcessAudio(float[] buffer){
+        for (int i = 0; i < buffer.Length; i++){
+            buffer[i] *= 8;
+            if (buffer[i] > 1f) buffer[i] = 1f;
+            if (buffer[i] < -1f) buffer[i] = -1f;
+        }
     }
 }
