@@ -2,18 +2,14 @@
 using NAudio.Wave;
 using NAudio.CoreAudioApi;
 
-class Program
-{
-    static void Main()
-    {
+class Program{
+    static void Main(){
         var enumerator = new MMDeviceEnumerator();
 
-        // Захват с виртуального кабеля
         var cableOutput = GetDevice(enumerator, DataFlow.Capture, "CABLE Output");
         if (cableOutput == null) { Console.WriteLine("CABLE Output не найден!"); return; }
         Console.WriteLine($"Захват с кабеля: {cableOutput.FriendlyName}");
 
-        // Вывод на физические колонки
         var speakers = GetDevice(enumerator, DataFlow.Render, "Динамики");
         if (speakers == null) { Console.WriteLine("Колонки не найдены!"); return; }
         Console.WriteLine($"Вывод на: {speakers.FriendlyName}");
@@ -59,11 +55,65 @@ class Program
         return null;
     }
     
-    static void ProcessAudio(float[] buffer){
-        for (int i = 0; i < buffer.Length; i++){
-            buffer[i] *= 8;
-            if (buffer[i] > 1f) buffer[i] = 1f;
-            if (buffer[i] < -1f) buffer[i] = -1f;
+    static Random rnd = new Random();
+
+    static int maxSeconds = 30;
+    static int sampleRate = 48000;
+    static int channels = 2;
+    static float[] historyBuffer = new float[sampleRate * maxSeconds * channels];
+    static int historyIndex = 0;
+
+    static int repeatStartIndex = -1;
+    static int repeatLength = 0;
+    static int repeatCounter = 0;
+    static int repeatOffset = 0;
+
+    static void ProcessAudio(float[] buffer, int bufChannels = 2)
+    {
+        int bufLen = buffer.Length;
+
+        for (int i = 0; i < bufLen; i += bufChannels)
+        {
+            for (int c = 0; c < bufChannels; c++)
+            {
+                int idx = i + c;
+                float sample = buffer[idx];
+
+                // --- Записываем новые сэмплы в круговой буфер истории ---
+                historyBuffer[historyIndex] = sample;
+                historyIndex = (historyIndex + 1) % historyBuffer.Length;
+
+                // --- Решаем, будем ли воспроизводить кусок истории ---
+                if (repeatCounter <= 0)
+                {
+                    if (rnd.NextDouble() < 0.02) // 2% шанс начать воспроизводить историю
+                    {
+                        // Длина повторяемого фрагмента: от 1 сэмпла до всей истории
+                        repeatLength = rnd.Next(1, historyBuffer.Length);
+
+                        // Случайный offset назад: от 0 до всей истории
+                        repeatOffset = rnd.Next(0, historyBuffer.Length);
+
+                        // Начало повторяемого сегмента в истории
+                        repeatStartIndex = (historyIndex - repeatOffset + historyBuffer.Length) % historyBuffer.Length;
+                        repeatCounter = repeatLength;
+                    }
+                }
+
+                // --- Если воспроизводим историю ---
+                if (repeatCounter > 0)
+                {
+                    sample = historyBuffer[repeatStartIndex];
+                    repeatStartIndex = (repeatStartIndex + 1) % historyBuffer.Length;
+                    repeatCounter--;
+                }
+
+                // Ограничение амплитуды [-1..1]
+                if (sample > 1f) sample = 1f;
+                if (sample < -1f) sample = -1f;
+
+                buffer[idx] = sample;
+            }
         }
     }
 }
