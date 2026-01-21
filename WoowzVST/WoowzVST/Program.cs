@@ -56,7 +56,7 @@ class Program{
         return null;
     }
     
-static Random rnd = new Random();
+    static Random rnd = new Random();
 
     static int maxSeconds = 30;
     static int sampleRate = 48000;
@@ -64,147 +64,76 @@ static Random rnd = new Random();
     static float[] historyBuffer = new float[sampleRate * maxSeconds * channels];
     static int historyIndex = 0;
 
-    class Repeat
-    {
-        public int StartIndex;
-        public int Remaining;
-        public float PlaybackSpeed;
-        public float SpeedIndex;
-        public int Channels;
-    }
+    // Текущий повтор истории
+    static int repeatStartIndex = -1;
+    static int repeatLength = 0;
+    static int repeatCounter = 0;
+    static float playbackSpeed = 1f; // скорость воспроизведения
+    static float speedIndex = 0f;     // дробный индекс для интерполяции
 
-    static List<Repeat> activeRepeats = new List<Repeat>();
-    static int maxRepeats = 4; // максимум случайных повторов
-
-    // --- Основной поток: небольшая рандомизация ---
-    static float mainSpeed = 1f;
-    static float mainIndex = 0f;
-    static int mainOffset = 0;
-
-    public static void ProcessAudio(float[] buffer, int bufChannels = 2)
+    static void ProcessAudio(float[] buffer, int bufChannels = 2)
     {
         int bufLen = buffer.Length;
 
-        try
+        for (int i = 0; i < bufLen; i += bufChannels)
         {
-            for (int i = 0; i < bufLen; i += bufChannels)
+            for (int c = 0; c < bufChannels; c++)
             {
-                for (int c = 0; c < bufChannels; c++)
+                int idx = i + c;
+                float sample = buffer[idx];
+
+                // --- Записываем новые сэмплы в круговой буфер истории ---
+                historyBuffer[historyIndex] = sample;
+                historyIndex = (historyIndex + 1) % historyBuffer.Length;
+
+                // --- Решаем, будем ли воспроизводить кусок истории ---
+                if (repeatCounter <= 0)
                 {
-                    int idx = i + c;
-                    float sample = buffer[idx];
-
-                    try
+                    if (rnd.NextDouble() < 0.10) // шанс начать повтор
                     {
-                        if (rnd.NextDouble() < 0.005)
-                        {
-                            mainOffset = rnd.Next(0, sampleRate * bufChannels / 2); // до 0.5 сек смещения
-                            mainSpeed = (float)(0.98 + rnd.NextDouble() * 0.04); // 0.98..1.02×
-                        }
+                        // Случайная позиция
+                        int randomOffset = rnd.Next(0, historyBuffer.Length);
+                        repeatStartIndex = (historyIndex - randomOffset + historyBuffer.Length) % historyBuffer.Length;
 
-                        int histIdx1 = (historyIndex - mainOffset + (int)mainIndex + historyBuffer.Length) % historyBuffer.Length;
-                        int histIdx2 = (histIdx1 + 1) % historyBuffer.Length;
-                        float t = mainIndex - (int)mainIndex;
-                        sample = historyBuffer[histIdx1] * (1 - t) + historyBuffer[histIdx2] * t;
-                        mainIndex += mainSpeed;
-                        if (mainIndex >= historyBuffer.Length) mainIndex -= historyBuffer.Length;
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Ошибка основного потока: {ex.Message}");
-                    }
+                        // Длина повтора: 1..5 секунд
+                        int minLength = (int)(sampleRate * 0.25f) * bufChannels;
+                        int maxLength = sampleRate * 10 * bufChannels;
+                        int remaining = (historyBuffer.Length - repeatStartIndex + historyBuffer.Length) % historyBuffer.Length;
+                        int maxAllowed = Math.Min(maxLength, remaining);
+                        repeatLength = rnd.Next(minLength, maxAllowed + 1);
 
-                    try
-                    {
-                        // --- Записываем входной сэмпл в историю ---
-                        historyBuffer[historyIndex] = buffer[idx];
-                        historyIndex = (historyIndex + 1) % historyBuffer.Length;
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Ошибка записи в историю: {ex.Message}");
-                    }
-
-                    try
-                    {
-                        if (activeRepeats.Count < maxRepeats && rnd.NextDouble() < 0.05)
-                        {
-                            int randomOffset = rnd.Next(0, historyBuffer.Length);
-                            int start = (historyIndex - randomOffset + historyBuffer.Length) % historyBuffer.Length;
-
-                            int minLength = sampleRate * 1 * bufChannels;
-                            int maxLength = sampleRate * 5 * bufChannels;
-                            int remaining = (historyBuffer.Length - start + historyBuffer.Length) % historyBuffer.Length;
-                            int maxAllowed = Math.Min(maxLength, remaining);
-
-                            // --- Проверка: minLength не может быть больше maxAllowed ---
-                            if (minLength <= maxAllowed)
-                            {
-                                int repeatLength = rnd.Next(minLength, maxAllowed + 1);
-
-                                activeRepeats.Add(new Repeat
-                                {
-                                    StartIndex = start,
-                                    Remaining = repeatLength,
-                                    PlaybackSpeed = (float)(0.5 + rnd.NextDouble()), // 0.5..1.5×
-                                    SpeedIndex = 0f,
-                                    Channels = bufChannels
-                                });
-                            }
-                            // иначе поток не создаём, истории мало
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Ошибка создания потоков: {ex.Message}");
-                    }
-
-                    try
-                    {
-                        for (int r = activeRepeats.Count - 1; r >= 0; r--)
-                        {
-                            var rep = activeRepeats[r];
-                            if (rep.Remaining <= 0)
-                            {
-                                activeRepeats.RemoveAt(r);
-                                continue;
-                            }
-
-                            int idx1 = (rep.StartIndex + (int)rep.SpeedIndex) % historyBuffer.Length;
-                            int idx2 = (idx1 + 1) % historyBuffer.Length;
-                            float t = rep.SpeedIndex - (int)rep.SpeedIndex;
-
-                            sample += historyBuffer[idx1] * (1 - t) + historyBuffer[idx2] * t;
-
-                            // только SpeedIndex увеличиваем, StartIndex остаётся фиксированным
-                            rep.SpeedIndex += rep.PlaybackSpeed;
-                            if (rep.SpeedIndex >= historyBuffer.Length) rep.SpeedIndex -= historyBuffer.Length;
-
-                            rep.Remaining--;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Ошибка воспроизведения повторов: {ex.Message}");
-                    }
-
-                    // Ограничение амплитуды [-1..1]
-                    try
-                    {
-                        if (sample > 1f) sample = 1f;
-                        if (sample < -1f) sample = -1f;
-                        buffer[idx] = sample;
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Ошибка записи сэмпла в буфер: {ex.Message}");
+                        // Сбрасываем счетчик и скорость
+                        repeatCounter = repeatLength;
+                        playbackSpeed = (float)(0.75 + rnd.NextDouble()/2); // 0.5..1.5×
+                        speedIndex = 0f;
                     }
                 }
+
+                // --- Если воспроизводим историю ---
+                if (repeatCounter > 0)
+                {
+                    // Интерполяция для скорости
+                    int idx1 = repeatStartIndex + (int)speedIndex;
+                    int idx2 = (idx1 + 1) % historyBuffer.Length;
+                    float t = speedIndex - (int)speedIndex;
+                    sample = historyBuffer[idx1 % historyBuffer.Length] * (1 - t) +
+                             historyBuffer[idx2 % historyBuffer.Length] * t;
+
+                    speedIndex += playbackSpeed;
+                    repeatStartIndex = (repeatStartIndex + (int)playbackSpeed) % historyBuffer.Length;
+                    repeatCounter--;
+
+                    // Если вышли за предел истории, сброс
+                    if (repeatCounter <= 0 || repeatStartIndex >= historyBuffer.Length)
+                        repeatCounter = 0;
+                }
+
+                // Ограничение амплитуды [-1..1]
+                if (sample > 1f) sample = 1f;
+                if (sample < -1f) sample = -1f;
+
+                buffer[idx] = sample;
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Общая ошибка ProcessAudio: {ex.Message}");
         }
     }
 }
