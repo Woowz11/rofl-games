@@ -58,7 +58,7 @@ class Program{
     
     static Random rnd = new Random();
 
-    static int maxSeconds = 30;
+    static int maxSeconds = 60;
     static int sampleRate = 48000;
     static int channels = 2;
     static float[] historyBuffer = new float[sampleRate * maxSeconds * channels];
@@ -89,22 +89,31 @@ class Program{
                 // --- Решаем, будем ли воспроизводить кусок истории ---
                 if (repeatCounter <= 0)
                 {
-                    if (rnd.NextDouble() < 0.10) // шанс начать повтор
+                    if (true)//rnd.NextDouble() < 0.10) // шанс начать повтор
                     {
                         // Случайная позиция
                         int randomOffset = rnd.Next(0, historyBuffer.Length);
                         repeatStartIndex = (historyIndex - randomOffset + historyBuffer.Length) % historyBuffer.Length;
 
-                        // Длина повтора: 1..5 секунд
                         int minLength = (int)(sampleRate * 0.25f) * bufChannels;
-                        int maxLength = sampleRate * 10 * bufChannels;
-                        int remaining = (historyBuffer.Length - repeatStartIndex + historyBuffer.Length) % historyBuffer.Length;
-                        int maxAllowed = Math.Min(maxLength, remaining);
-                        repeatLength = rnd.Next(minLength, maxAllowed + 1);
+                        int maxLength = sampleRate * (maxSeconds / 10) * bufChannels;
 
-                        // Сбрасываем счетчик и скорость
+                        int available =
+                            (historyIndex - repeatStartIndex + historyBuffer.Length)
+                            % historyBuffer.Length;
+
+                        int maxAllowed = Math.Min(maxLength, available);
+
+                        if (maxAllowed < minLength)
+                        {
+                            repeatCounter = 0;
+                            repeatStartIndex = -1;
+                            continue;
+                        }
+
+                        repeatLength = rnd.Next(minLength, maxAllowed + 1);
                         repeatCounter = repeatLength;
-                        playbackSpeed = (float)(0.75 + rnd.NextDouble()/2); // 0.5..1.5×
+                        playbackSpeed = (float)(0.85 + rnd.NextDouble() * 0.1);
                         speedIndex = 0f;
                     }
                 }
