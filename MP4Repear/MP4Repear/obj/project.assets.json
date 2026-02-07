@@ -1,0 +1,329 @@
+{
+  "version": 3,
+  "targets": {
+    "net8.0-windows7.0": {
+      "H264Sharp/1.6.0": {
+        "type": "package",
+        "compile": {
+          "lib/netstandard2.0/H264Sharp.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/netstandard2.0/H264Sharp.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "build/H264Sharp.targets": {}
+        },
+        "runtimeTargets": {
+          "runtimes/linux-arm/native/H264SharpNative-linux-arm32.so": {
+            "assetType": "native",
+            "rid": "linux-arm"
+          },
+          "runtimes/linux-arm/native/libopenh264-2.4.1-linux-arm.7.so": {
+            "assetType": "native",
+            "rid": "linux-arm"
+          },
+          "runtimes/linux-arm64/native/H264SharpNative-linux-arm64.so": {
+            "assetType": "native",
+            "rid": "linux-arm64"
+          },
+          "runtimes/linux-arm64/native/libopenh264-2.4.1-linux-arm64.7.so": {
+            "assetType": "native",
+            "rid": "linux-arm64"
+          },
+          "runtimes/linux-x64/native/H264SharpNative-linux64.so": {
+            "assetType": "native",
+            "rid": "linux-x64"
+          },
+          "runtimes/linux-x64/native/libopenh264-2.4.1-linux64.7.so": {
+            "assetType": "native",
+            "rid": "linux-x64"
+          },
+          "runtimes/linux-x86/native/H264SharpNative-linux32.so": {
+            "assetType": "native",
+            "rid": "linux-x86"
+          },
+          "runtimes/linux-x86/native/libopenh264-2.4.1-linux32.7.so": {
+            "assetType": "native",
+            "rid": "linux-x86"
+          },
+          "runtimes/win-x64/native/H264SharpNative-win64.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x64/native/openh264-2.4.1-win64.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x86/native/H264SharpNative-win32.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          },
+          "runtimes/win-x86/native/openh264-2.4.1-win32.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          }
+        }
+      },
+      "H264SharpBitmapExtentions/1.0.0": {
+        "type": "package",
+        "dependencies": {
+          "H264Sharp": "1.5.0",
+          "System.Drawing.Common": "7.0.0"
+        },
+        "compile": {
+          "lib/netstandard2.0/H264SharpBitmapExtentions.dll": {}
+        },
+        "runtime": {
+          "lib/netstandard2.0/H264SharpBitmapExtentions.dll": {}
+        }
+      },
+      "Microsoft.Win32.SystemEvents/7.0.0": {
+        "type": "package",
+        "compile": {
+          "lib/net7.0/Microsoft.Win32.SystemEvents.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net7.0/Microsoft.Win32.SystemEvents.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net7.0/Microsoft.Win32.SystemEvents.dll": {
+            "assetType": "runtime",
+            "rid": "win"
+          }
+        }
+      },
+      "System.Drawing.Common/7.0.0": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.Win32.SystemEvents": "7.0.0"
+        },
+        "compile": {
+          "lib/net7.0/System.Drawing.Common.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net7.0/System.Drawing.Common.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net7.0/System.Drawing.Common.dll": {
+            "assetType": "runtime",
+            "rid": "win"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "H264Sharp/1.6.0": {
+      "sha512": "TLLr+Qzr+pxoKTC8OJkM71ikf1Lv1XcsB+WohwwYzttp3+FNEDNhZPsvx+dIRzAYzCuKgpLHS0NspKP4O/xSkg==",
+      "type": "package",
+      "path": "h264sharp/1.6.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Licence.txt",
+        "build/H264Sharp.targets",
+        "h264sharp.1.6.0.nupkg.sha512",
+        "h264sharp.nuspec",
+        "lib/netstandard2.0/H264Sharp.dll",
+        "lib/netstandard2.0/H264Sharp.xml",
+        "runtimes/android-arm/H264SharpNative-android-arm32.so",
+        "runtimes/android-arm/libopenh264-2.4.1-android-arm.7.so",
+        "runtimes/android-arm64/H264SharpNative-android-arm64.so",
+        "runtimes/android-arm64/libopenh264-2.4.1-android-arm64.7.so",
+        "runtimes/android-x64/H264SharpNative-android-x64.so",
+        "runtimes/android-x64/libopenh264-2.4.1-android-x64.7.so",
+        "runtimes/linux-arm/native/H264SharpNative-linux-arm32.so",
+        "runtimes/linux-arm/native/libopenh264-2.4.1-linux-arm.7.so",
+        "runtimes/linux-arm64/native/H264SharpNative-linux-arm64.so",
+        "runtimes/linux-arm64/native/libopenh264-2.4.1-linux-arm64.7.so",
+        "runtimes/linux-x64/native/H264SharpNative-linux64.so",
+        "runtimes/linux-x64/native/libopenh264-2.4.1-linux64.7.so",
+        "runtimes/linux-x86/native/H264SharpNative-linux32.so",
+        "runtimes/linux-x86/native/libopenh264-2.4.1-linux32.7.so",
+        "runtimes/win-x64/native/H264SharpNative-win64.dll",
+        "runtimes/win-x64/native/openh264-2.4.1-win64.dll",
+        "runtimes/win-x86/native/H264SharpNative-win32.dll",
+        "runtimes/win-x86/native/openh264-2.4.1-win32.dll"
+      ]
+    },
+    "H264SharpBitmapExtentions/1.0.0": {
+      "sha512": "WIBv8BZmGYh/J5vSkiGOhafzcuB4/wlq1lkUhsGWbmE5xt4/8JwF3Bwetrows6s+NVsGcdlUNFcpzvax1lo4lA==",
+      "type": "package",
+      "path": "h264sharpbitmapextentions/1.0.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Licence.txt",
+        "h264sharpbitmapextentions.1.0.0.nupkg.sha512",
+        "h264sharpbitmapextentions.nuspec",
+        "lib/netstandard2.0/H264SharpBitmapExtentions.dll"
+      ]
+    },
+    "Microsoft.Win32.SystemEvents/7.0.0": {
+      "sha512": "2nXPrhdAyAzir0gLl8Yy8S5Mnm/uBSQQA7jEsILOS1MTyS7DbmV1NgViMtvV1sfCD1ebITpNwb1NIinKeJgUVQ==",
+      "type": "package",
+      "path": "microsoft.win32.systemevents/7.0.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "LICENSE.TXT",
+        "THIRD-PARTY-NOTICES.TXT",
+        "buildTransitive/net461/Microsoft.Win32.SystemEvents.targets",
+        "buildTransitive/net462/_._",
+        "buildTransitive/net6.0/_._",
+        "buildTransitive/netcoreapp2.0/Microsoft.Win32.SystemEvents.targets",
+        "lib/net462/Microsoft.Win32.SystemEvents.dll",
+        "lib/net462/Microsoft.Win32.SystemEvents.xml",
+        "lib/net6.0/Microsoft.Win32.SystemEvents.dll",
+        "lib/net6.0/Microsoft.Win32.SystemEvents.xml",
+        "lib/net7.0/Microsoft.Win32.SystemEvents.dll",
+        "lib/net7.0/Microsoft.Win32.SystemEvents.xml",
+        "lib/netstandard2.0/Microsoft.Win32.SystemEvents.dll",
+        "lib/netstandard2.0/Microsoft.Win32.SystemEvents.xml",
+        "microsoft.win32.systemevents.7.0.0.nupkg.sha512",
+        "microsoft.win32.systemevents.nuspec",
+        "runtimes/win/lib/net6.0/Microsoft.Win32.SystemEvents.dll",
+        "runtimes/win/lib/net6.0/Microsoft.Win32.SystemEvents.xml",
+        "runtimes/win/lib/net7.0/Microsoft.Win32.SystemEvents.dll",
+        "runtimes/win/lib/net7.0/Microsoft.Win32.SystemEvents.xml",
+        "useSharedDesignerContext.txt"
+      ]
+    },
+    "System.Drawing.Common/7.0.0": {
+      "sha512": "KIX+oBU38pxkKPxvLcLfIkOV5Ien8ReN78wro7OF5/erwcmortzeFx+iBswlh2Vz6gVne0khocQudGwaO1Ey6A==",
+      "type": "package",
+      "path": "system.drawing.common/7.0.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "LICENSE.TXT",
+        "THIRD-PARTY-NOTICES.TXT",
+        "buildTransitive/net461/System.Drawing.Common.targets",
+        "buildTransitive/net462/_._",
+        "buildTransitive/net6.0/_._",
+        "buildTransitive/netcoreapp2.0/System.Drawing.Common.targets",
+        "lib/MonoAndroid10/_._",
+        "lib/MonoTouch10/_._",
+        "lib/net462/System.Drawing.Common.dll",
+        "lib/net462/System.Drawing.Common.xml",
+        "lib/net6.0/System.Drawing.Common.dll",
+        "lib/net6.0/System.Drawing.Common.xml",
+        "lib/net7.0/System.Drawing.Common.dll",
+        "lib/net7.0/System.Drawing.Common.xml",
+        "lib/netstandard2.0/System.Drawing.Common.dll",
+        "lib/netstandard2.0/System.Drawing.Common.xml",
+        "lib/xamarinios10/_._",
+        "lib/xamarinmac20/_._",
+        "lib/xamarintvos10/_._",
+        "lib/xamarinwatchos10/_._",
+        "runtimes/win/lib/net6.0/System.Drawing.Common.dll",
+        "runtimes/win/lib/net6.0/System.Drawing.Common.xml",
+        "runtimes/win/lib/net7.0/System.Drawing.Common.dll",
+        "runtimes/win/lib/net7.0/System.Drawing.Common.xml",
+        "system.drawing.common.7.0.0.nupkg.sha512",
+        "system.drawing.common.nuspec",
+        "useSharedDesignerContext.txt"
+      ]
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net8.0-windows7.0": [
+      "H264Sharp >= 1.6.0",
+      "H264SharpBitmapExtentions >= 1.0.0"
+    ]
+  },
+  "packageFolders": {
+    "C:\\Users\\Woowz11\\.nuget\\packages\\": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "W:\\Other\\rofl-games\\MP4Repear\\MP4Repear\\MP4Repear.csproj",
+      "projectName": "MP4Repear",
+      "projectPath": "W:\\Other\\rofl-games\\MP4Repear\\MP4Repear\\MP4Repear.csproj",
+      "packagesPath": "C:\\Users\\Woowz11\\.nuget\\packages\\",
+      "outputPath": "W:\\Other\\rofl-games\\MP4Repear\\MP4Repear\\obj\\",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "Z:\\AppData\\Roaming\\NuGet\\NuGet.Config"
+      ],
+      "originalTargetFrameworks": [
+        "net8.0-windows"
+      ],
+      "sources": {
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "net8.0-windows7.0": {
+          "targetAlias": "net8.0-windows",
+          "projectReferences": {}
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      },
+      "restoreAuditProperties": {
+        "enableAudit": "true",
+        "auditLevel": "low",
+        "auditMode": "direct"
+      }
+    },
+    "frameworks": {
+      "net8.0-windows7.0": {
+        "targetAlias": "net8.0-windows",
+        "dependencies": {
+          "H264Sharp": {
+            "target": "Package",
+            "version": "[1.6.0, )"
+          },
+          "H264SharpBitmapExtentions": {
+            "target": "Package",
+            "version": "[1.0.0, )"
+          }
+        },
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          },
+          "Microsoft.WindowsDesktop.App.WPF": {
+            "privateAssets": "none"
+          }
+        },
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.416/PortableRuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}
