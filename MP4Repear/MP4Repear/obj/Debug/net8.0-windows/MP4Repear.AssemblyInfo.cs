@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MP4Repear")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5c0539e20c822dfff7e7f8c623672d212060e57f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+714cbf2e2e7e361c54825895cbf164be5fc3fcf2")]
 [assembly: System.Reflection.AssemblyProductAttribute("MP4Repear")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MP4Repear")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
