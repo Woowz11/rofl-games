@@ -1,43 +1,55 @@
-const { Mouse } = require("mechatron");
+require("./lib/core")
 
-async function Wait(Seconds){
-    await new Promise(R => setTimeout(R, Seconds * 1000))
-}
-
-async function Work(){
+try{
     console.log("Запуск...")
 
-    await Wait(3)
+    let AllProcesses = Agent.Programs.GetAllCSV();
 
-    console.log("Запуск!")
+    // Браузер цель
+    let BrowserPID = -1;
 
-    const Mouse__ = new Mouse();
+    for(let i = 0; i < AllProcesses.length; i++){
+        const Process = AllProcesses[i];
 
-    const cx = 960;
-    const cy = 540;
-    const r = 200;
-
-    let angle = 0;
-    let count = 0;
-    const circles = 30;
-
-    while(angle < circles * 2 * Math.PI){
-        const x = cx + r * Math.cos(angle);
-        const y = cy + r * Math.sin(angle);
-
-        Mouse.setPos(x, y);
-
-        count++;
-        if(count % 10 === 0){
-            console.log(`Угол: ${Math.round(angle * 180 / Math.PI)}`)
+        if(Process.Name.toLowerCase() === "firefox.exe"){
+            if(!Process.CommandLine.includes("-contentproc") && !Process.CommandLine.includes("crashhelper")){
+                BrowserPID = parseInt(Process.ProcessId);
+            }
         }
-
-        angle += 0.05 * 10;
-
-        await Wait(0.01);
     }
-}
 
-Work().catch(e => {
-    console.error("ОШИБКА!", e.message);
-})
+    if(BrowserPID === -1){
+        throw new Error("Браузер не найден!");
+    }
+
+    async function InitBrowser(){
+        console.log(`Привязка к браузеру: ${BrowserPID}, "${Agent.Programs.Window.GetTitle(BrowserPID)}"`)
+
+        async function InitCycle(){
+            try{
+                let Counter = 0;
+                while(true){
+                    Counter++;
+
+                    if(!Agent.Programs.Window.Exists(BrowserPID)){
+                        console.warn("Браузер был потерян!");
+                        break;
+                    }
+
+                    console.log(Agent.Programs.Window.GetRect(BrowserPID));
+
+                    await new Promise(R => setTimeout(R, 100));
+                }
+            }catch(e){
+                throw new Error(`Ошибка в цикле: ${e.message}`)
+            }
+        }
+        await InitCycle();
+    }
+    InitBrowser().then(function(){
+        console.log("Завершение...");
+    });
+}catch(e){
+    console.error(e)
+    throw e;
+}
