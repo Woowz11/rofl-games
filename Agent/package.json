@@ -1,0 +1,15 @@
+{
+  "name": "agent",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Woowz11",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "mechatron": "^0.0.5",
+    "playwright": "^1.62.1"
+  }
+}
