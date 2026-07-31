@@ -5,10 +5,17 @@ function createWindow () {
     const win = new BrowserWindow({
         width: 800,
         height: 600,
+        transparent: true,
+        frame: false,
+        backgroundColor: '#00000000',
+        alwaysOnTop: true,
+        skipTaskbar: true,
         webPreferences: {
 
         }
     })
+
+    win.setIgnoreMouseEvents(true);
 
     const htmlString = `
     <!DOCTYPE html>
