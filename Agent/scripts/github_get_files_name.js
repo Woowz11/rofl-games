@@ -17,8 +17,14 @@ try{
             async function InitCycle(){
                 try{
                     let Counter = 0;
-                    while(true){
+
+                    let Work = true;
+                    while(Work){
                         Counter++;
+
+                        if(Agent.Keyboard.IsDown(0x1B /* ESC */)){
+                            Work = false;
+                        }
 
                         if(!Agent.Programs.Window.Exists(BrowserPID)){
                             console.warn("Браузер был потерян!");

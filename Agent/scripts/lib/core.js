@@ -1,22 +1,13 @@
-const __Agent = {}
+const { app, BrowserWindow, screen } = require("electron/main");
 
-let { app, BrowserWindow, screen } = require("electron/main");
-__Agent.EWindow = BrowserWindow;
-BrowserWindow = undefined;
-__Agent.Electron = app;
-app = undefined;
 /**
  * @type {import("electron/main").BrowserWindow[]}
  */
-__Agent.HUD = [];
-__Agent.Screen = screen
-screen = undefined;
+let HUD = [];
 
 // ----------------------------------------------------------------------
 
 let { execSync } = require("child_process");
-__Agent.Exec = execSync;
-execSync = undefined;
 
 const __ExecParam = {
     encoding: "utf8",
@@ -139,8 +130,6 @@ function ParseCSV(CSV) {
 // ----------------------------------------------------------------------
 
 global.Agent = {
-    __Agent: __Agent,
-
     Mouse: {
         SetPosition: function(X, Y){
             try {
@@ -166,7 +155,14 @@ global.Agent = {
     },
 
     Keyboard: {
-
+        IsDown: function(KeyCode){
+            try{
+                return (__N_GetAsyncKeyState(KeyCode) & 0x8000) !== 0;
+            }catch(e){
+                console.warn(`Ошибка Agent.Keyboard.IsDown(${KeyCode}):`, e);
+                return false;
+            }
+        }
     },
 
     Vision: {
@@ -196,10 +192,9 @@ global.Agent = {
          */
         GetAllCSV: function(){
             try{
-                const Result = __Agent.Exec(`wmic process get ProcessId,Name,CommandLine,ExecutablePath /format:csv`, __ExecParam);
-                return ParseCSV(Result);
+                return ParseCSV(execSync(`wmic process get ProcessId,Name,CommandLine,ExecutablePath /format:csv`, __ExecParam));
             }catch(e){
-                console.warn(e);
+                console.warn("Ошибка Agent.Programs.GetAllCSV:", e);
                 return null;
             }
         },
@@ -225,7 +220,7 @@ global.Agent = {
 
                 return Result;
             }catch(e){
-                console.warn(e);
+                console.warn("Ошибка Agent.Programs.GetBrowser:", e);
                 return null;
             }
         },
@@ -236,7 +231,7 @@ global.Agent = {
                     const HWND = __GetHWNDByPID(PID);
                     return HWND !== null && __N_IsWindow(HWND);
                 }catch(e){
-                    console.warn("Ошибка Agent.Window.Exists:", e);
+                    console.warn(`Ошибка Agent.Window.Exists(${PID}):`, e);
                     return false;
                 }
             },
@@ -250,7 +245,7 @@ global.Agent = {
                     let L = __N_GetWindowTextW(HWND, TitleBuffer, 256);
                     return TitleBuffer.toString("utf16le", 0, L * 2);
                 }catch(e){
-                    console.warn("Ошибка Agent.Window.GetTitle:", e);
+                    console.warn(`Ошибка Agent.Window.GetTitle(${PID}):`, e);
                     return "";
                 }
             },
@@ -277,7 +272,7 @@ global.Agent = {
                     }
                     return { X: 0, Y: 0, W: 0, H: 0 };
                 }catch(e){
-                    console.warn("Ошибка Agent.Window.GetRect:", e);
+                    console.warn(`Ошибка Agent.Window.GetRect(${PID}):`, e);
                     return { X: 0, Y: 0, W: 0, H: 0 };
                 }
             }
@@ -287,13 +282,14 @@ global.Agent = {
     Render: {
         Destroy: function(){
             try{
-                __Agent.HUD.forEach(Window => {
+                const HasRender = HUD.length > 0;
+
+                HUD.forEach(Window => {
                    if(!Window.isDestroyed()){ Window.close(); }
                 });
-                __Agent.HUD = [];
+                HUD = [];
 
-                if(__Agent.Electron !== undefined){ __Agent.Electron.quit(); }
-                __Agent.Electron = undefined;
+                if(HasRender){ app.quit(); }
             }catch(e){
                 console.error(e);
             }
@@ -301,15 +297,15 @@ global.Agent = {
 
         Init: function(WhenReady){
             try{
-                if(__Agent.HUD.length > 0){ throw new Error("Рендер уже инициализирован!"); }
+                if(HUD.length > 0){ throw new Error("Рендер уже инициализирован!"); }
 
-                __Agent.Electron.whenReady().then(() => {
-                    const Displays = __Agent.Screen.getAllDisplays();
+                app.whenReady().then(() => {
+                    const Displays = screen.getAllDisplays();
 
                     Displays.forEach(Display => {
                        const { x, y, width, height } = Display.bounds;
 
-                       const Window = new __Agent.EWindow({
+                       const Window = new BrowserWindow({
                            x: x,
                            y: y,
                            width : width,
@@ -391,7 +387,7 @@ ipcRenderer.on("render", (e, Components) => {
     </body>
 </html>`;
                         Window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(HTML)}`);
-                        __Agent.HUD.push(Window);
+                        HUD.push(Window);
                     });
 
                     if(WhenReady){
@@ -399,9 +395,9 @@ ipcRenderer.on("render", (e, Components) => {
                     }
                 });
 
-                __Agent.Electron.on("window-all-closed", () => {
+                app.on("window-all-closed", () => {
                    if(process.platform !== "darwin"){
-                       __Agent.Electron.quit();
+                       app.quit();
                    }
                 });
 
@@ -426,7 +422,7 @@ ipcRenderer.on("render", (e, Components) => {
 
         Update: function(){
             try{
-                __Agent.HUD.forEach(Window => {
+                HUD.forEach(Window => {
                     if(!Window.isDestroyed()){
                         Window.webContents.send("render", this.Components);
                     }
