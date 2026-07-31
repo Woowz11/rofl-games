@@ -10,20 +10,76 @@ BrowserWindow = undefined;
 __Agent.Electron = app;
 app = undefined;
 /**
- * @type {import("electron/main").BrowserWindow}
+ * @type {import("electron/main").BrowserWindow[]}
  */
-__Agent.HUD = undefined;
+__Agent.HUD = [];
 __Agent.Screen = screen
 screen = undefined;
 
 // ----------------------------------------------------------------------
 
-const __FFI = require('ffi-napi');
-const __REF = require('ref-napi');
+let { execSync } = require("child_process");
+__Agent.Exec = execSync;
+execSync = undefined;
 
-const RECT = __REF.types.struct({
-    
-})
+const __ExecParam = {
+    encoding: "utf8",
+    stdio: "pipe"
+};
+
+const Koffi = require("koffi");
+
+const User32   = Koffi.load("user32.dll");
+const Kernel32 = Koffi.load("kernel32.dll");
+
+const HWND    = Koffi.pointer("void");
+const LPDWORD = Koffi.pointer("uint32");
+const LPWSTR  = Koffi.pointer("char16");
+
+const RECT = Koffi.struct('RECT', {
+    left  : "int32",
+    top   : "int32",
+    right : "int32",
+    bottom: "int32"
+});
+const PRECT = Koffi.pointer(RECT);
+
+const __N_EnumWindows = User32.func('__stdcall', 'EnumWindows', 'bool', [Koffi.pointer(Koffi.proto('bool', [HWND, 'intptr'])), 'intptr']);
+const __N_GetWindowThreadProcessId = User32.func('__stdcall', 'GetWindowThreadProcessId', 'uint32', [HWND, LPDWORD]);
+const __N_GetWindowRect = User32.func('__stdcall', 'GetWindowRect', 'bool', [HWND, PRECT]);
+const __N_GetWindowTextW = User32.func('__stdcall', 'GetWindowTextW', 'int', [HWND, LPWSTR, 'int']);
+const __N_IsWindow = User32.func('__stdcall', 'IsWindow', 'bool', [HWND]);
+const __N_IsWindowVisible = User32.func('__stdcall', 'IsWindowVisible', 'bool', [HWND]);
+
+function __GetHWNDByPID(PID) {
+    let FoundHWND = null;
+    PID = parseInt(PID);
+
+    const CallbackType = Koffi.pointer(Koffi.proto("bool", [HWND, "intptr"]));
+
+    const EnumProc = Koffi.register((HWNDArgument, LP) => {
+        let PIDBuffer = Buffer.alloc(4);
+        __N_GetWindowThreadProcessId(HWNDArgument, PIDBuffer);
+        let CurrentPID = PIDBuffer.readUInt32LE(0);
+
+        if(CurrentPID === PID){
+            if(__N_IsWindowVisible(HWNDArgument)){
+                let TitleBuffer = Buffer.alloc(512);
+                let L = __N_GetWindowTextW(HWNDArgument, TitleBuffer, 256);
+                if(L > 0){
+                    FoundHWND = HWNDArgument;
+                    return false;
+                }
+            }
+        }
+        return true;
+    }, CallbackType);
+
+    __N_EnumWindows(EnumProc, 0);
+    Koffi.unregister(EnumProc);
+
+    return FoundHWND;
+}
 
 // ----------------------------------------------------------------------
 
@@ -129,67 +185,52 @@ global.Agent = {
         Window: {
             Exists: function(PID){
                 try{
-                    const Result = __Agent.Powershell(`(Get-Process -Id ${PID} -ErrorAction SilentlyContinue).MainWindowHandle -ne 0`);
-                    return Result && Result.trim() === "True";
+                    const HWND = __GetHWNDByPID(PID);
+                    return HWND !== null && __N_IsWindow(HWND);
                 }catch(e){
-                    console.warn(e);
+                    console.warn("Ошибка Agent.Window.Exists:", e);
                     return false;
                 }
             },
 
             GetTitle: function(PID){
                 try{
-                    const Result = __Agent.Powershell(`(Get-Process -Id ${PID} -ErrorAction SilentlyContinue).MainWindowTitle`);
-                    return Result ? Result.trim() : "";
+                    const HWND = __GetHWNDByPID(PID);
+                    if(!HWND){ return ""; }
+
+                    let TitleBuffer = Buffer.alloc(512);
+                    let L = __N_GetWindowTextW(HWND, TitleBuffer, 256);
+                    return TitleBuffer.toString("utf16le", 0, L * 2);
                 }catch(e){
-                    console.warn(e);
+                    console.warn("Ошибка Agent.Window.GetTitle:", e);
                     return "";
                 }
             },
 
-            GetRect: function(PID){
+            GetRect: function(PID) {
                 try{
-                    const Result = __Agent.Powershell(`
-                Add-Type -TypeDefinition @"
-                using System;
-                using System.Runtime.InteropServices;
-                public class User32 {
-                    [DllImport("user32.dll")]
-                    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-                    [DllImport("user32.dll")]
-                    public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-                    
-                    public struct RECT {
-                        public int Left;
-                        public int Top;
-                        public int Right;
-                        public int Bottom;
+                    const HWND = __GetHWNDByPID(PID);
+                    if(!HWND){ return { X: 0, Y: 0, W: 0, H: 0 }; }
+
+                    let RectBuffer = Buffer.alloc(16);
+
+                    if(__N_GetWindowRect(HWND, RectBuffer)){
+                        const L = RectBuffer.readInt32LE(0 );
+                        const T = RectBuffer.readInt32LE(4 );
+                        const R = RectBuffer.readInt32LE(8 );
+                        const B = RectBuffer.readInt32LE(12);
+
+                        return {
+                            X: L,
+                            Y: T,
+                            W: R - L,
+                            H: B - T
+                        };
                     }
-                }
-"@;
-                $hwnd = (Get-Process -Id ${PID}).MainWindowHandle;
-                $rect = New-Object User32+RECT;
-                [User32]::GetWindowRect($hwnd, [ref]$rect) | Out-Null;
-                
-                $Width = $rect.Right - $rect.Left;
-                $Height = $rect.Bottom - $rect.Top;
-                
-                Write-Output "$($rect.Left),$($rect.Top),$($Width),$($Height)"
-            `);
-                    if(!Result){ return null; }
-
-                    const Parts = Result.trim().split(',');
-                    if(Parts.length !== 4){ return null; }
-
-                    return {
-                        X: parseInt(Parts[0]),
-                        Y: parseInt(Parts[1]),
-                        W: parseInt(Parts[2]),
-                        H: parseInt(Parts[3])
-                    };
+                    return { X: 0, Y: 0, W: 0, H: 0 };
                 }catch(e){
-                    console.warn(e);
-                    return null;
+                    console.warn("Ошибка Agent.Window.GetRect:", e);
+                    return { X: 0, Y: 0, W: 0, H: 0 };
                 }
             }
         }
@@ -198,6 +239,11 @@ global.Agent = {
     Render: {
         Destroy: function(){
             try{
+                __Agent.HUD.forEach(Window => {
+                   if(!Window.isDestroyed()){ Window.close(); }
+                });
+                __Agent.HUD = [];
+
                 if(__Agent.Electron !== undefined){ __Agent.Electron.quit(); }
                 __Agent.Electron = undefined;
             }catch(e){
@@ -207,86 +253,56 @@ global.Agent = {
 
         Init: function(WhenReady){
             try{
-                if(__Agent.HUD !== undefined){ throw new Error("Рендер уже инициализирован!"); }
+                if(__Agent.HUD.length > 0){ throw new Error("Рендер уже инициализирован!"); }
 
                 __Agent.Electron.whenReady().then(() => {
-                    let TX =  Infinity;
-                    let TY =  Infinity;
-                    let TR = -Infinity;
-                    let TB = -Infinity;
+                    const Displays = __Agent.Screen.getAllDisplays();
 
-                    // 🙄 хуйня не хочет делаться на несколько мониторов
-                    __Agent.Screen.getAllDisplays().forEach(Display => {
-                       const Bounds = Display.bounds;
-                        if(Bounds.x < TX){ TX = Bounds.x; }
-                        if(Bounds.y < TY){ TY = Bounds.y; }
-                        if(Bounds.x + Bounds.width  > TR){ TR = Bounds.x + Bounds.width ; }
-                        if(Bounds.y + Bounds.height > TB){ TB = Bounds.y + Bounds.height; }
-                    });
+                    Displays.forEach(Display => {
+                       const { x, y, width, height } = Display.bounds;
 
-                    const TW = TR - TX;
-                    const TH = TB - TY;
+                       const Window = new __Agent.EWindow({
+                           x: x,
+                           y: y,
+                           width : width,
+                           height: height,
 
-                    __Agent.HUD = new __Agent.EWindow({
-                        x     : TX,
-                        y     : TY,
-                        width : TW,
-                        height: TH,
+                           transparent    : true,
+                           backgroundColor: "#00000000",
 
-                        transparent    : true,
-                        backgroundColor: "#00000000",
+                           frame      : false,
+                           alwaysOnTop: true,
+                           skipTaskbar: true,
+                           focusable  : false,
 
-                        frame      : false,
-                        alwaysOnTop: true,
-                        skipTaskbar: true,
-                        focusable  : false,
+                           webPreferences: {
+                               nodeIntegration: true,
+                               contextIsolation: false
+                           }
+                       })
 
-                        webPreferences: {
-                            nodeIntegration: true,
-                            contextIsolation: false,
-                            enableRemoteModule: false
-                        }
-                    });
+                        Window.setIgnoreMouseEvents(true);
 
-                    __Agent.HUD.setIgnoreMouseEvents(true);
-
-                    const HTML =
+                        const HTML =
 `<!DOCTYPE html>
 <html lang='ru'>
     <head>
         <meta charset="UTF-8">
         <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            background: rgba(0, 255, 0, 0.1) !important;
-            overflow: hidden;
-            width: 100vw;
-            height: 100vh;
-            position: relative;
-        }
-        .overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-        }
-        .rect {
-            position: absolute;
-            border: 2px solid rgba(255,255,255,0.8);
-            border-radius: 4px;
-            pointer-events: none;
-        }
+        * { margin: 0; padding: 0; overflow: hidden; box-sizing: border-box; }
+        body { width: 100vw; height: 100vh; position: relative; background: transparent; }
+        .rect { position: absolute; border: 2px solid; border-radius: 4px; pointer-events: none; }
         </style>
     </head>
     <body>
-        <div class="overlay" id="overlay"></div>
+        <div id="overlay"></div>
         <script>
-
+const { ipcRenderer } = require("electron");
 const Overlay = document.getElementById("overlay");
+const OffsetX = ${x};
+const OffsetY = ${y};
 
-window.Render = function(Components){
+ipcRenderer.on("render", (e, Components) => {
     let HTML = "";
     
     for(let i = 0; i < Components.length; i++){
@@ -295,40 +311,30 @@ window.Render = function(Components){
         
         switch(Type){
             case 0: {
-                let X = Component[1];
-                let Y = Component[2];
+                let X = Component[1] - OffsetX;
+                let Y = Component[2] - OffsetY;
                 let W = Component[3];
                 let H = Component[4];
                 
                 let Color = Component[5];
                 
-                HTML += '<div class="rect" style="' +
-                            'left: ' + X + 'px; ' +
-                            'top: ' + Y + 'px; ' +
-                            'width: ' + W + 'px; ' +
-                            'height: ' + H + 'px; ' +
-                            'background: ' + Color + ';' +
-                            '"></div>';
+                HTML += '<div class="rect" style="left:' + X + 'px; top:' + Y + 'px; width:' + W + 'px; height:' + H + 'px; border-color:' + Color + ';"></div>';
                 break;
             }
         }
     }
     
     Overlay.innerHTML = HTML;
-}
-
-const { ipcRenderer } = require("electron");
-ipcRenderer.on("render", (e, Components) => {
-    window.Render(Components);
 })
 
         </script>
     </body>
 </html>`;
+                        Window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(HTML)}`);
+                        __Agent.HUD.push(Window);
+                    });
 
-                    __Agent.HUD.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(HTML)}`);
-
-                    if(WhenReady !== undefined){
+                    if(WhenReady){
                         WhenReady();
                     }
                 });
@@ -356,7 +362,11 @@ ipcRenderer.on("render", (e, Components) => {
 
         Update: function(){
             try{
-                __Agent.HUD.webContents.send("render", this.Components);
+                __Agent.HUD.forEach(Window => {
+                    if(!Window.isDestroyed()){
+                        Window.webContents.send("render", this.Components);
+                    }
+                })
 
                 this.Components = [];
 

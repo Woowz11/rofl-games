@@ -26,14 +26,12 @@ try{
                         }
 
                         let BrowserRect = Agent.Programs.Window.GetRect(BrowserPID);
-                        console.log(BrowserRect);
 
                         Agent.Render.Rect(BrowserRect.X, BrowserRect.Y, BrowserRect.W, BrowserRect.H);
 
-                        console.log(Agent.Render.Components);
                         Agent.Render.Update();
 
-                        await new Promise(R => setTimeout(R, 10));
+                        await new Promise(R => setTimeout(R, 50));
                     }
                 }catch(e){
                     throw new Error(`Ошибка в цикле: ${e.message}`)
