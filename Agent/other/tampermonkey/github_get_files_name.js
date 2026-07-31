@@ -4,7 +4,7 @@
 // @version      1.0
 // @description  Изменение стиля GitHub для удобства и улучшения работы OCR бота
 // @author       Woowz11
-// @match        https://github.com/*
+// @match        https://github.com/*/*/tree/*
 // @icon         https://www.google.com/s2/favicons?bb=github.com
 // @grant        GM_addStyle
 // ==/UserScript==
@@ -15,6 +15,22 @@
     // language=CSS
     GM_addStyle(
 `
+    :root {
+        --bgColor-default: #FFFFFFFF !important;
+    }
+    
+    *{
+        text-shadow: unset !important;
+        letter-spacing: 3px !important;
+        font-family: "Roboto Light", monospace !important;
+        color: black !important;
+        font-weight: 700 !important;
+    }
+ 
+    html{
+        zoom: 1.5 !important;
+    }
+ 
     html, body{
         overflow-x: hidden !important;
         width: 100% !important;
@@ -53,10 +69,17 @@
     .ReposFileTreePane-module__FileResultsList__zmSnM{
         display: none !important;
     }
-
-    svg.octicon-file {
+    
+    span.prc-Spinner-Box-Y-ke-{
         background-color: #00FFFF !important;
-        border-radius: 2px !important;
+        border-radius: unset !important;
+        width: 16px !important;
+        height: 16px !important;
+    }
+    
+    svg.octicon-file {
+        background-color: #FF0000 !important;
+        border-radius: unset !important;
         width: 16px !important;
         height: 16px !important;
     }
@@ -67,7 +90,7 @@
 
     svg.octicon-file-directory-fill {
         background-color: #FFFF00 !important;
-        border-radius: 2px !important;
+        border-radius: unset !important;
         width: 16px !important;
         height: 16px !important;
     }
@@ -78,7 +101,7 @@
 
     svg.octicon-file-directory-open-fill {
         background-color: #FF00FF !important;
-        border-radius: 2px !important;
+        border-radius: unset !important;
         width: 16px !important;
         height: 16px !important;
     }
@@ -90,7 +113,7 @@
     #AGENT-Debug-Square{
         position: fixed !important;
         top: 0 !important;
-        right: 17px !important;
+        right: 3px !important;
         width: 30px !important;
         height: 30px !important;
         background-color: rgb(156, 13, 5) !important;

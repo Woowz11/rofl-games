@@ -1,6 +1,11 @@
 const { app, BrowserWindow, screen, desktopCapturer } = require("electron/main");
 
 const fs = require("fs");
+const { EventEmitter } = require("events");
+const { Worker, parentPort} = require("worker_threads");
+const path = require("path");
+
+const __EEmitter = new EventEmitter();
 
 /**
  * @type {import("electron/main").BrowserWindow[]}
@@ -48,6 +53,7 @@ const POINT = Koffi.struct('POINT', {
 });
 const PPOINT = Koffi.pointer(POINT);
 
+const __N_MouseEvent = User32.func("__stdcall", "mouse_event", "void", ["uint32", "uint32", "uint32", "uint32", "uintptr"]);
 const __N_SetCursorPos = User32.func("__stdcall", "SetCursorPos", "bool", ["int", "int"]);
 const __N_GetCursorPos = User32.func("__stdcall", "GetCursorPos", "bool", [PPOINT]);
 const __N_GetAsyncKeyState = User32.func("__stdcall", "GetAsyncKeyState", "int16", ["int"]);
@@ -215,6 +221,7 @@ global.Agent = {
                 console.warn(`Ошибка Agent.Mouse.SetPosition(${X}, ${Y}):`, e);
             }
         },
+
         GetPosition: function(){
             try {
                 let PT = Buffer.alloc(8);
@@ -228,6 +235,75 @@ global.Agent = {
                 console.warn("Ошибка Agent.Mouse.GetPosition:", e);
             }
             return { X: 0, Y: 0 };
+        },
+
+        Move: async function(X, Y, Duration = 0.8) {
+            const Start = this.GetPosition();
+            const DX = X - Start.X;
+            const DY = Y - Start.Y;
+            const Distance = Math.sqrt(DX * DX + DY * DY);
+
+            if(Distance < 2){ return; }
+
+            const Steps = Math.max(20, Math.floor(Duration * 120));
+            const TimePerStep = (Duration * 1000) / Steps;
+
+            const UX = DX / Distance;
+            const UY = DY / Distance;
+
+            const PX = -UY;
+            const PY =  UX;
+
+            const Frequency = 1.0;
+            const Amplitude = (Math.random() < 0.5 ? 1 : -1) * (Distance * 0.03 + 2);
+
+            const EaseInOut = (T) => T < 0.5 ? 2 * T * T : -1 + (4 - 2 * T) * T;
+
+            for(let i = 0; i <= Steps; i++){
+                let T = i / Steps;
+                let ET = EaseInOut(T);
+
+                let LX = Start.X + DX * ET;
+                let LY = Start.Y + DY * ET;
+
+                let Offset = Math.sin(T * Math.PI * Frequency) * Amplitude * (ET * (1 - ET) * 4);
+
+                let CX = LX + PX * Offset;
+                let CY = LY + PY * Offset;
+
+                CX += (Math.random() - 0.5) * 0.5;
+                CY += (Math.random() - 0.5) * 0.5;
+
+                this.SetPosition(CX, CY);
+
+                await Agent.Other.Wait((TimePerStep / 1000) * (0.95 + Math.random() * 0.1));
+            }
+
+            this.SetPosition(X, Y);
+        },
+
+        Down: function(Button = "Left"){
+            const Keys = { "Left": 0x0002, "Right": 0x0008, "Middle": 0x0020 };
+            try {
+                __N_MouseEvent(Keys[Button] || 0x0002, 0, 0, 0, 0);
+            } catch(e) {
+                console.warn(`Ошибка Agent.Mouse.Down(${Button}):`, e);
+            }
+        },
+
+        Up: function(Button = "Left") {
+            const Keys = { "Left": 0x0004, "Right": 0x0010, "Middle": 0x0040 };
+            try {
+                __N_MouseEvent(Keys[Button] || 0x0004, 0, 0, 0, 0);
+            } catch(e) {
+                console.warn(`Ошибка Agent.Mouse.Up(${Button}):`, e);
+            }
+        },
+
+        Click: async function(Button = "Left") {
+            this.Down(Button);
+            await Agent.Other.Wait(0.06 + Math.random() * 0.09);
+            this.Up(Button);
         }
     },
 
@@ -239,6 +315,14 @@ global.Agent = {
                 console.warn(`Ошибка Agent.Keyboard.IsDown(${KeyCode}):`, e);
                 return false;
             }
+        },
+
+        Event_Down: function(Callback){
+            __EEmitter.on("keyboard_down", Callback);
+        },
+
+        Event_Up: function(Callback){
+            __EEmitter.on("keyboard_up", Callback);
         }
     },
 
@@ -259,8 +343,12 @@ global.Agent = {
 
                 if(this.ShowDebug){
                     Agent.Render.Color = "blue";
-                    const Offset = 4;
-                    Agent.Render.Frame(X - Offset, Y - Offset, Offset * 2, Offset * 2);
+                    Agent.Render.Pixel(X + 1, Y + 1);
+                    Agent.Render.Pixel(X - 1, Y - 1);
+                    Agent.Render.Pixel(X + 1, Y - 1);
+                    Agent.Render.Pixel(X - 1, Y + 1);
+
+                    Agent.Render.Update(false);
                 }
 
                 return { R: R, G: G, B: B, HEX: `#${ToHEX(R)}${ToHEX(G)}${ToHEX(B)}` }
@@ -275,22 +363,91 @@ global.Agent = {
              * @type {import("Tesseract.js").Worker}
              */
             __OCR: null,
+            /**
+             * @type {import("Tesseract.js").Worker}
+             */
+            __OCR2: null,
+            /**
+             * @type {import("Tesseract.js").Worker}
+             */
+            __OCR3: null,
 
             Init: async function(Lang = "rus+eng", Whitelist = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-/:"){
                 if(this.__OCR !== null){ throw new Error("OCR уже инициализирован!"); }
-                this.__OCR = await Tesseract.createWorker(Lang);
+
+                const TessedataPath = path.resolve(__dirname, "../../other/tessedata");
+                console.log(TessedataPath)
+
+                this.__OCR = await Tesseract.createWorker(Lang, Tesseract.OEM.DEFAULT, {
+                    logger: M => { if(this.ShowDebug){ console.log(M); } },
+                    errorHandler: e => console.error("Tesseract Worker Error:", e),
+                    cacheMethod: "none",
+                    gzip: false,
+                    langPath: TessedataPath
+                }, {
+                    load_system_dawg : "0",
+                    load_freq_dawg   : "0",
+                    load_unambig_dawg: "0",
+                    load_punc_dawg   : "0",
+                    load_number_dawg : "0",
+                    load_bigram_dawg : "0"
+                });
                 this.__OCR.setParameters({
-                    tessedit_pageseg_mode: "7",
+                    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
                     tessedit_char_whitelist: Whitelist,
                     user_defined_dpi: "300"
-                })
+                });
+
+                this.__OCR2 = await Tesseract.createWorker(Lang, Tesseract.OEM.DEFAULT, {
+                    logger: M => { if(this.ShowDebug){ console.log(M); } },
+                    errorHandler: e => console.error("Tesseract Worker Error:", e),
+                    cacheMethod: "none",
+                    gzip: false,
+                    langPath: TessedataPath
+                }, {
+                    load_system_dawg : "0",
+                    load_freq_dawg   : "0",
+                    load_unambig_dawg: "0",
+                    load_punc_dawg   : "0",
+                    load_number_dawg : "0",
+                    load_bigram_dawg : "0"
+                });
+                this.__OCR2.setParameters({
+                    tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
+                    tessedit_char_whitelist: Whitelist,
+                    user_defined_dpi: "300"
+                });
+
+                this.__OCR3 = await Tesseract.createWorker(Lang, Tesseract.OEM.DEFAULT, {
+                    logger: M => { if(this.ShowDebug){ console.log(M); } },
+                    errorHandler: e => console.error("Tesseract Worker Error:", e),
+                    cacheMethod: "none",
+                    gzip: false,
+                    langPath: TessedataPath
+                }, {
+                    load_system_dawg : "0",
+                    load_freq_dawg   : "0",
+                    load_unambig_dawg: "0",
+                    load_punc_dawg   : "0",
+                    load_number_dawg : "0",
+                    load_bigram_dawg : "0"
+                });
+                this.__OCR3.setParameters({
+                    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_WORD,
+                    tessedit_char_whitelist: Whitelist,
+                    user_defined_dpi: "300"
+                });
             },
 
             /**
              * @returns {Promise<string>}
              */
-            Read: async function(X, Y, W, H){
+            Read: async function(X, Y, W, H, Options = {}){
                 try{
+                    const Settings = {
+                        Invert: Options.Invert === true
+                    }
+
                     if(!this.__OCR){ await this.Init(); }
 
                     const Displays     = screen.getAllDisplays();
@@ -310,32 +467,64 @@ global.Agent = {
 
                     const ScreenPNG = Source.thumbnail.toPNG();
 
-                    const Image = await Jimp.read(ScreenPNG);
+                    const OriginalImage = await Jimp.read(ScreenPNG);
 
                     const LX = X - TargetDisplay.bounds.x;
                     const LY = Y - TargetDisplay.bounds.y;
 
-                    Image.crop({ x: LX, y: LY, w: W, h: H });
+                    OriginalImage.crop({ x: LX, y: LY, w: W, h: H });
 
-                    Image.greyscale();
-                    Image.invert();
-                    Image.scale(3);
-                    Image.threshold({ max: 180 });
+                    OriginalImage.greyscale();
 
-                    const Buffer = await Image.getBuffer("image/png");
+                    if(Settings.Invert){
+                        OriginalImage.invert();
+                    }
 
-                    const { data: { text } } = await this.__OCR.recognize(Buffer, {
-                        rotateAuto: true,
+                    const BGColor = OriginalImage.getPixelColor(0, 0);
+
+                    OriginalImage.resize({ h: 300 });
+
+                    const PaddedImage = new Jimp({
+                        width : OriginalImage.bitmap.width  + 100,
+                        height: OriginalImage.bitmap.height + 150,
+                        color : BGColor
                     });
+
+                    PaddedImage.composite(OriginalImage, 100, 75);
+                    PaddedImage.threshold({ max: 155 });
+
+                    const Buffer = await PaddedImage.getBuffer("image/png");
 
                     if(Agent.Vision.ShowDebug){
                         Agent.Render.Color = "yellow";
-                        Agent.Render.Frame(X, Y, W, H);
+                        Agent.Render.Frame(X - 5, Y - 5, W + 5 * 2, H + 5 * 2);
 
                         fs.writeFileSync("other/DEBUG_OCR.png", Buffer);
+
+                        Agent.Render.Update(false);
                     }
 
-                    return text.trim();
+                    let Result = "";
+
+                    let Attempts = 0;
+                    while(Attempts < 3){
+                        let OCR = (Attempts === 0 ? this.__OCR : (Attempts === 1 ? this.__OCR2 : this.__OCR3));
+
+                        const { data: { text } } = await OCR.recognize(Buffer, {
+                            rotateAuto: true,
+                        });
+
+                        Result = text.trim();
+
+                        if(Result !== ""){
+                            break;
+                        }
+
+                        Attempts++;
+                    }
+
+                    if(Agent.Vision.ShowDebug){ console.log(`Результат OCR (Попыток:${Attempts}): ${Result}`); }
+                    return Result;
                 }catch(e){
                     console.warn(`Ошибка Agent.OCR.Read(${X}, ${Y}, ${W}, ${H}):`, e);
                     return "";
@@ -587,15 +776,19 @@ ipcRenderer.on("render", (e, Components) => {
             this.Components.push([1, X, Y, W, H, this.Color])
         },
 
-        Update: function(){
+        Pixel: function(X, Y){
+            this.Rect(X, Y, 1, 1);
+        },
+
+        Update: function(Clear = true){
             try{
                 HUD.forEach(Window => {
                     if(!Window.isDestroyed()){
-                        Window.webContents.send("render", this.Components);
+                        Window.webContents.send("render", this.Components, Clear);
                     }
                 })
 
-                this.Components = [];
+                if(Clear){ this.Components = []; }
 
                 return true;
             }catch(e){
@@ -605,3 +798,31 @@ ipcRenderer.on("render", (e, Components) => {
         }
     }
 }
+
+const __Worker = new Worker(
+    // language=JS
+`const { parentPort } = require("worker_threads");
+const Koffi = require("koffi");
+const User32 = Koffi.load("user32.dll");
+const GetAsyncKeyState = User32.func("__stdcall", "GetAsyncKeyState", "int16", ["int"])
+
+let States = new Uint8Array(256);
+setInterval(() => {
+    for(let i = 1; i < 256; i++){
+        let IsDown = (GetAsyncKeyState(i) & 0x8000) !== 0;
+        
+        if(IsDown && States[i] === 0){
+            States[i] = 1;
+            parentPort.postMessage({ type: "keyboard_down", code: i })
+        }else if(!IsDown && States[i] === 1){
+            States[i] = 0;
+            parentPort.postMessage({ type: "keyboard_up", code: i })
+        }
+    }
+}, 10);
+`
+    , { eval: true });
+
+__Worker.on("message", Message => {
+    __EEmitter.emit(Message.type, Message.code);
+})
