@@ -1,9 +1,5 @@
 const __Agent = {}
 
-let { Mouse } = require("mechatron");
-__Agent.Mouse = Mouse;
-Mouse = undefined;
-
 let { app, BrowserWindow, screen } = require("electron/main");
 __Agent.EWindow = BrowserWindow;
 BrowserWindow = undefined;
@@ -29,9 +25,10 @@ const __ExecParam = {
 
 const Koffi = require("koffi");
 
-const User32   = Koffi.load("user32.dll");
-const Kernel32 = Koffi.load("kernel32.dll");
+const User32 = Koffi.load("user32.dll");
+const Gdi32  = Koffi.load("gdi32.dll" );
 
+const HDC = Koffi.pointer("void");
 const HWND    = Koffi.pointer("void");
 const LPDWORD = Koffi.pointer("uint32");
 const LPWSTR  = Koffi.pointer("char16");
@@ -44,12 +41,24 @@ const RECT = Koffi.struct('RECT', {
 });
 const PRECT = Koffi.pointer(RECT);
 
+const POINT = Koffi.struct('POINT', {
+    x: "int32",
+    y: "int32"
+});
+const PPOINT = Koffi.pointer(POINT);
+
+const __N_SetCursorPos = User32.func("__stdcall", "SetCursorPos", "bool", ["int", "int"]);
+const __N_GetCursorPos = User32.func("__stdcall", "GetCursorPos", "bool", [PPOINT]);
+const __N_GetAsyncKeyState = User32.func("__stdcall", "GetAsyncKeyState", "int16", ["int"]);
 const __N_EnumWindows = User32.func('__stdcall', 'EnumWindows', 'bool', [Koffi.pointer(Koffi.proto('bool', [HWND, 'intptr'])), 'intptr']);
 const __N_GetWindowThreadProcessId = User32.func('__stdcall', 'GetWindowThreadProcessId', 'uint32', [HWND, LPDWORD]);
 const __N_GetWindowRect = User32.func('__stdcall', 'GetWindowRect', 'bool', [HWND, PRECT]);
 const __N_GetWindowTextW = User32.func('__stdcall', 'GetWindowTextW', 'int', [HWND, LPWSTR, 'int']);
 const __N_IsWindow = User32.func('__stdcall', 'IsWindow', 'bool', [HWND]);
 const __N_IsWindowVisible = User32.func('__stdcall', 'IsWindowVisible', 'bool', [HWND]);
+const __N_GetDC = User32.func("__stdcall", "GetDC", HDC, [HWND]);
+const __N_GetPixel = Gdi32.func("__stdcall", "GetPixel", "uint32", [HDC, "int", "int"]);
+const __N_ReleaseDC = User32.func("__stdcall", "ReleaseDC", "int", [HWND, HDC]);
 
 function __GetHWNDByPID(PID) {
     let FoundHWND = null;
@@ -134,11 +143,50 @@ global.Agent = {
 
     Mouse: {
         SetPosition: function(X, Y){
-            __Agent.Mouse.setPos(X, Y);
+            try {
+                __N_SetCursorPos(Math.floor(X), Math.floor(Y));
+            } catch(e) {
+                console.warn(`Ошибка Agent.Mouse.SetPosition(${X}, ${Y}):`, e);
+            }
         },
         GetPosition: function(){
-            let Point = __Agent.Mouse.getPos();
-            return [Point.x, Point.y];
+            try {
+                let PT = Buffer.alloc(8);
+                if (__N_GetCursorPos(PT)) {
+                    return {
+                        X: PT.readInt32LE(0),
+                        Y: PT.readInt32LE(4)
+                    };
+                }
+            } catch(e) {
+                console.warn("Ошибка Agent.Mouse.GetPosition:", e);
+            }
+            return { X: 0, Y: 0 };
+        }
+    },
+
+    Keyboard: {
+
+    },
+
+    Vision: {
+        Pixel: function(X, Y){
+            try{
+                const HDC__ = __N_GetDC(null);
+                const Color = __N_GetPixel(HDC__, X, Y);
+                __N_ReleaseDC(null, HDC__);
+
+                const R =  Color        & 0xFF;
+                const G = (Color >> 8 ) & 0xFF;
+                const B = (Color >> 16) & 0xFF;
+
+                const ToHEX = (C) => C.toString(16).padStart(2, '0').toUpperCase();
+
+                return { R: R, G: G, B: B, HEX: `#${ToHEX(R)}${ToHEX(G)}${ToHEX(B)}` }
+            }catch(e){
+                console.warn(`Ошибка Agent.Vision.Pixel(${X}, ${Y}):`, e);
+                return { R: 0, G: 0, B: 0, HEX: "#000000" }
+            }
         }
     },
 
@@ -291,7 +339,8 @@ global.Agent = {
         <style>
         * { margin: 0; padding: 0; overflow: hidden; box-sizing: border-box; }
         body { width: 100vw; height: 100vh; position: relative; background: transparent; }
-        .rect { position: absolute; border: 2px solid; border-radius: 4px; pointer-events: none; }
+        .frame { position: absolute; border: 2px solid; border-radius: 4px; pointer-events: none; }
+        .rect { position: absolute; border-radius: 4px; pointer-events: none; }
         </style>
     </head>
     <body>
@@ -318,7 +367,18 @@ ipcRenderer.on("render", (e, Components) => {
                 
                 let Color = Component[5];
                 
-                HTML += '<div class="rect" style="left:' + X + 'px; top:' + Y + 'px; width:' + W + 'px; height:' + H + 'px; border-color:' + Color + ';"></div>';
+                HTML += '<div class="frame" style="left:' + X + 'px; top:' + Y + 'px; width:' + W + 'px; height:' + H + 'px; border-color:' + Color + ';"></div>';
+                break;
+            }
+            case 1: {
+                let X = Component[1] - OffsetX;
+                let Y = Component[2] - OffsetY;
+                let W = Component[3];
+                let H = Component[4];
+                
+                let Color = Component[5];
+                
+                HTML += '<div class="rect" style="left:' + X + 'px; top:' + Y + 'px; width:' + W + 'px; height:' + H + 'px; background:' + Color + ';"></div>';
                 break;
             }
         }
@@ -356,8 +416,12 @@ ipcRenderer.on("render", (e, Components) => {
 
         Components: [],
 
-        Rect: function(X, Y, W, H){
+        Frame: function(X, Y, W, H){
             this.Components.push([0, X, Y, W, H, this.Color])
+        },
+
+        Rect: function(X, Y, W, H){
+            this.Components.push([1, X, Y, W, H, this.Color])
         },
 
         Update: function(){

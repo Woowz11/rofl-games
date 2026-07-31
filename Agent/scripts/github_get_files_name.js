@@ -27,7 +27,15 @@ try{
 
                         let BrowserRect = Agent.Programs.Window.GetRect(BrowserPID);
 
-                        Agent.Render.Rect(BrowserRect.X, BrowserRect.Y, BrowserRect.W, BrowserRect.H);
+                        Agent.Render.Color = "red";
+
+                        Agent.Render.Frame(BrowserRect.X, BrowserRect.Y, BrowserRect.W, BrowserRect.H);
+
+                        let MousePosition = Agent.Mouse.GetPosition();
+                        let PIXEL = Agent.Vision.Pixel(MousePosition.X, MousePosition.Y);
+
+                        Agent.Render.Color = PIXEL.HEX;
+                        Agent.Render.Rect(0, 0, 200, 200);
 
                         Agent.Render.Update();
 

@@ -10,7 +10,6 @@
   "description": "",
   "dependencies": {
     "electron": "^43.2.0",
-    "koffi": "^3.1.4",
-    "mechatron": "^0.0.5"
+    "koffi": "^3.1.4"
   }
 }
