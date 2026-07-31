@@ -1,7 +1,7 @@
 const __Agent = {}
 
 let { Mouse } = require("mechatron");
-__Agent.M_Mouse = Mouse;
+__Agent.Mouse = Mouse;
 Mouse = undefined;
 
 let { execSync } = require("child_process");
@@ -73,10 +73,10 @@ global.Agent = {
 
     Mouse: {
         SetPosition: function(X, Y){
-            __Agent.M_Mouse.setPos(X, Y);
+            __Agent.Mouse.setPos(X, Y);
         },
         GetPosition: function(){
-            let Point = __Agent.M_Mouse.getPos();
+            let Point = __Agent.Mouse.getPos();
             return [Point.x, Point.y];
         }
     },
@@ -89,6 +89,32 @@ global.Agent = {
             try{
                 const Result = __Agent.Exec(`wmic process get ProcessId,Name,CommandLine,ExecutablePath /format:csv`, __ExecParam);
                 return ParseCSV(Result);
+            }catch(e){
+                console.warn(e);
+                return null;
+            }
+        },
+
+        GetBrowser: function(CSV = undefined){
+            try{
+                if(CSV === undefined){ CSV = Agent.Programs.GetAllCSV(); }
+                let Result = -1;
+
+                for(let i = 0; i < CSV.length; i++){
+                    const Process = CSV[i];
+
+                    if(Process.Name.toLowerCase() === "firefox.exe"){
+                        if(!Process.CommandLine.includes("-contentproc") && !Process.CommandLine.includes("crashhelper")){
+                            Result = parseInt(Process.ProcessId);
+                        }
+                    }
+                }
+
+                if(Result === -1){
+                    throw new Error("Браузер не найден!");
+                }
+
+                return Result;
             }catch(e){
                 console.warn(e);
                 return null;
@@ -162,5 +188,9 @@ global.Agent = {
                 }
             }
         }
+    },
+
+    Render: {
+
     }
 }

@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "github_get_files_name": "electron scripts/github_get_files_name.js"
   },
   "author": "Woowz11",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "electron": "^43.2.0",
     "mechatron": "^0.0.5",
     "playwright": "^1.62.1"
   }
