@@ -4,23 +4,28 @@ let { Mouse } = require("mechatron");
 __Agent.Mouse = Mouse;
 Mouse = undefined;
 
-let { execSync } = require("child_process");
-__Agent.Exec = execSync;
-execSync = undefined;
+let { app, BrowserWindow, screen } = require("electron/main");
+__Agent.EWindow = BrowserWindow;
+BrowserWindow = undefined;
+__Agent.Electron = app;
+app = undefined;
+/**
+ * @type {import("electron/main").BrowserWindow}
+ */
+__Agent.HUD = undefined;
+__Agent.Screen = screen
+screen = undefined;
 
-const __ExecParam = {
-    encoding: "utf8",
-    stdio: "pipe"
-};
+// ----------------------------------------------------------------------
 
-__Agent.Powershell = function(Command){
-    try{
-        return __Agent.Exec(`powershell -EncodedCommand "${Buffer.from(Command, "utf16le").toString("base64")}"`, __ExecParam);
-    }catch(e){
-        console.warn("Powershell ошибка:", e.message);
-        return "";
-    }
-}
+const __FFI = require('ffi-napi');
+const __REF = require('ref-napi');
+
+const RECT = __REF.types.struct({
+    
+})
+
+// ----------------------------------------------------------------------
 
 function ParseCSV(CSV) {
     const Lines = CSV.split('\n').filter(Line => Line.trim());
@@ -183,7 +188,7 @@ global.Agent = {
                         H: parseInt(Parts[3])
                     };
                 }catch(e){
-                    console.warn('GetRect error:', e.message);
+                    console.warn(e);
                     return null;
                 }
             }
@@ -191,6 +196,175 @@ global.Agent = {
     },
 
     Render: {
+        Destroy: function(){
+            try{
+                if(__Agent.Electron !== undefined){ __Agent.Electron.quit(); }
+                __Agent.Electron = undefined;
+            }catch(e){
+                console.error(e);
+            }
+        },
 
+        Init: function(WhenReady){
+            try{
+                if(__Agent.HUD !== undefined){ throw new Error("Рендер уже инициализирован!"); }
+
+                __Agent.Electron.whenReady().then(() => {
+                    let TX =  Infinity;
+                    let TY =  Infinity;
+                    let TR = -Infinity;
+                    let TB = -Infinity;
+
+                    // 🙄 хуйня не хочет делаться на несколько мониторов
+                    __Agent.Screen.getAllDisplays().forEach(Display => {
+                       const Bounds = Display.bounds;
+                        if(Bounds.x < TX){ TX = Bounds.x; }
+                        if(Bounds.y < TY){ TY = Bounds.y; }
+                        if(Bounds.x + Bounds.width  > TR){ TR = Bounds.x + Bounds.width ; }
+                        if(Bounds.y + Bounds.height > TB){ TB = Bounds.y + Bounds.height; }
+                    });
+
+                    const TW = TR - TX;
+                    const TH = TB - TY;
+
+                    __Agent.HUD = new __Agent.EWindow({
+                        x     : TX,
+                        y     : TY,
+                        width : TW,
+                        height: TH,
+
+                        transparent    : true,
+                        backgroundColor: "#00000000",
+
+                        frame      : false,
+                        alwaysOnTop: true,
+                        skipTaskbar: true,
+                        focusable  : false,
+
+                        webPreferences: {
+                            nodeIntegration: true,
+                            contextIsolation: false,
+                            enableRemoteModule: false
+                        }
+                    });
+
+                    __Agent.HUD.setIgnoreMouseEvents(true);
+
+                    const HTML =
+`<!DOCTYPE html>
+<html lang='ru'>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: rgba(0, 255, 0, 0.1) !important;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .rect {
+            position: absolute;
+            border: 2px solid rgba(255,255,255,0.8);
+            border-radius: 4px;
+            pointer-events: none;
+        }
+        </style>
+    </head>
+    <body>
+        <div class="overlay" id="overlay"></div>
+        <script>
+
+const Overlay = document.getElementById("overlay");
+
+window.Render = function(Components){
+    let HTML = "";
+    
+    for(let i = 0; i < Components.length; i++){
+        const Component = Components[i];
+        const Type = Component[0];
+        
+        switch(Type){
+            case 0: {
+                let X = Component[1];
+                let Y = Component[2];
+                let W = Component[3];
+                let H = Component[4];
+                
+                let Color = Component[5];
+                
+                HTML += '<div class="rect" style="' +
+                            'left: ' + X + 'px; ' +
+                            'top: ' + Y + 'px; ' +
+                            'width: ' + W + 'px; ' +
+                            'height: ' + H + 'px; ' +
+                            'background: ' + Color + ';' +
+                            '"></div>';
+                break;
+            }
+        }
+    }
+    
+    Overlay.innerHTML = HTML;
+}
+
+const { ipcRenderer } = require("electron");
+ipcRenderer.on("render", (e, Components) => {
+    window.Render(Components);
+})
+
+        </script>
+    </body>
+</html>`;
+
+                    __Agent.HUD.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(HTML)}`);
+
+                    if(WhenReady !== undefined){
+                        WhenReady();
+                    }
+                });
+
+                __Agent.Electron.on("window-all-closed", () => {
+                   if(process.platform !== "darwin"){
+                       __Agent.Electron.quit();
+                   }
+                });
+
+                return true;
+            }catch(e){
+                console.error(e);
+                return false;
+            }
+        },
+
+        Color: "#FF0000",
+
+        Components: [],
+
+        Rect: function(X, Y, W, H){
+            this.Components.push([0, X, Y, W, H, this.Color])
+        },
+
+        Update: function(){
+            try{
+                __Agent.HUD.webContents.send("render", this.Components);
+
+                this.Components = [];
+
+                return true;
+            }catch(e){
+                console.warn(e);
+                return false;
+            }
+        }
     }
 }
