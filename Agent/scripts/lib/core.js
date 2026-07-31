@@ -1,9 +1,14 @@
-const { app, BrowserWindow, screen } = require("electron/main");
+const { app, BrowserWindow, screen, desktopCapturer } = require("electron/main");
+
+const fs = require("fs");
 
 /**
  * @type {import("electron/main").BrowserWindow[]}
  */
 let HUD = [];
+
+const Tesseract = require("tesseract.js");
+const { Jimp } = require("jimp");
 
 // ----------------------------------------------------------------------
 
@@ -18,6 +23,11 @@ const Koffi = require("koffi");
 
 const User32 = Koffi.load("user32.dll");
 const Gdi32  = Koffi.load("gdi32.dll" );
+const DwmApi = Koffi.load("dwmapi.dll");
+
+const DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+
+
 
 const HDC = Koffi.pointer("void");
 const HWND    = Koffi.pointer("void");
@@ -50,6 +60,12 @@ const __N_IsWindowVisible = User32.func('__stdcall', 'IsWindowVisible', 'bool', 
 const __N_GetDC = User32.func("__stdcall", "GetDC", HDC, [HWND]);
 const __N_GetPixel = Gdi32.func("__stdcall", "GetPixel", "uint32", [HDC, "int", "int"]);
 const __N_ReleaseDC = User32.func("__stdcall", "ReleaseDC", "int", [HWND, HDC]);
+const __N_DwmGetWindowAttribute = DwmApi.func("__stdcall", "DwmGetWindowAttribute", "int", [
+    HWND,
+    "uint32",
+    Koffi.pointer("void"),
+    "uint32"
+]);
 
 function __GetHWNDByPID(PID) {
     let FoundHWND = null;
@@ -130,6 +146,67 @@ function ParseCSV(CSV) {
 // ----------------------------------------------------------------------
 
 global.Agent = {
+    Other: {
+        Wait: async function(Seconds){
+            await new Promise(R => setTimeout(R, Seconds * 1000));
+        },
+
+        Relative: function(ParentRect, ReferenceRect, Target, Options = {}){
+            const Settings = {
+                ScaleX: Options.ScaleX !== false,
+                ScaleY: Options.ScaleY !== false,
+                ScaleW: Options.ScaleW !== false,
+                ScaleH: Options.ScaleH !== false
+            };
+
+            const SX = Settings.ScaleX ? (ParentRect.W / ReferenceRect.W) : 1;
+            const SY = Settings.ScaleY ? (ParentRect.H / ReferenceRect.H) : 1;
+
+            const SW = Settings.ScaleW  ? (ParentRect.W / ReferenceRect.W) : 1;
+            const SH = Settings.ScaleH  ? (ParentRect.H / ReferenceRect.H) : 1;
+
+            const OX = Target.X - ReferenceRect.X;
+            const OY = Target.Y - ReferenceRect.Y;
+
+            const Result = {
+                X: Math.floor(ParentRect.X + (OX * SX)),
+                Y: Math.floor(ParentRect.Y + (OY * SY))
+            };
+
+            if(Target.W !== undefined && Target.H !== undefined){
+                Result.W = Math.floor(Target.W * SW);
+                Result.H = Math.floor(Target.H * SH);
+            }
+
+            return Result;
+        },
+
+        CompareColors: function(ColorA, ColorB){
+            const ToRGB = (V) => {
+                if(typeof V === "string"){
+                    const HEX = V.replace("#", "");
+                    return {
+                        R: parseInt(HEX.substring(0, 2), 16),
+                        G: parseInt(HEX.substring(2, 4), 16),
+                        B: parseInt(HEX.substring(4, 6), 16)
+                    }
+                }
+                return { R: V.R, G: V.G, B: V.B }
+            };
+
+            const A = ToRGB(ColorA);
+            const B = ToRGB(ColorB);
+
+            const DR = A.R - B.R;
+            const DG = A.G - B.G;
+            const DB = A.B - B.B;
+
+            const Distance = Math.sqrt(DR*DR + DG*DG + DB*DB);
+
+            return Math.max(0, Math.min(1, 1 - (Distance / 441.6729559300637)));
+        }
+    },
+
     Mouse: {
         SetPosition: function(X, Y){
             try {
@@ -166,6 +243,8 @@ global.Agent = {
     },
 
     Vision: {
+        ShowDebug: false,
+
         Pixel: function(X, Y){
             try{
                 const HDC__ = __N_GetDC(null);
@@ -178,10 +257,89 @@ global.Agent = {
 
                 const ToHEX = (C) => C.toString(16).padStart(2, '0').toUpperCase();
 
+                if(this.ShowDebug){
+                    Agent.Render.Color = "blue";
+                    const Offset = 4;
+                    Agent.Render.Frame(X - Offset, Y - Offset, Offset * 2, Offset * 2);
+                }
+
                 return { R: R, G: G, B: B, HEX: `#${ToHEX(R)}${ToHEX(G)}${ToHEX(B)}` }
             }catch(e){
                 console.warn(`Ошибка Agent.Vision.Pixel(${X}, ${Y}):`, e);
                 return { R: 0, G: 0, B: 0, HEX: "#000000" }
+            }
+        },
+
+        OCR: {
+            /**
+             * @type {import("Tesseract.js").Worker}
+             */
+            __OCR: null,
+
+            Init: async function(Lang = "rus+eng", Whitelist = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-/:"){
+                if(this.__OCR !== null){ throw new Error("OCR уже инициализирован!"); }
+                this.__OCR = await Tesseract.createWorker(Lang);
+                this.__OCR.setParameters({
+                    tessedit_pageseg_mode: "7",
+                    tessedit_char_whitelist: Whitelist,
+                    user_defined_dpi: "300"
+                })
+            },
+
+            /**
+             * @returns {Promise<string>}
+             */
+            Read: async function(X, Y, W, H){
+                try{
+                    if(!this.__OCR){ await this.Init(); }
+
+                    const Displays     = screen.getAllDisplays();
+                    const TargetDisplay = screen.getDisplayMatching({ x: X, y: Y, width: W, height: H });
+
+                    const DisplayIndex = Displays.findIndex(d => d.id === TargetDisplay.id);
+
+                    const Sources = await desktopCapturer.getSources({
+                        types: ["screen"],
+                        thumbnailSize: {
+                            width : TargetDisplay.bounds.width,
+                            height: TargetDisplay.bounds.height
+                        }
+                    });
+
+                    let Source = Sources.find(s => s.display_id === String(TargetDisplay.id)) || Sources[DisplayIndex] || Sources[0];
+
+                    const ScreenPNG = Source.thumbnail.toPNG();
+
+                    const Image = await Jimp.read(ScreenPNG);
+
+                    const LX = X - TargetDisplay.bounds.x;
+                    const LY = Y - TargetDisplay.bounds.y;
+
+                    Image.crop({ x: LX, y: LY, w: W, h: H });
+
+                    Image.greyscale();
+                    Image.invert();
+                    Image.scale(3);
+                    Image.threshold({ max: 180 });
+
+                    const Buffer = await Image.getBuffer("image/png");
+
+                    const { data: { text } } = await this.__OCR.recognize(Buffer, {
+                        rotateAuto: true,
+                    });
+
+                    if(Agent.Vision.ShowDebug){
+                        Agent.Render.Color = "yellow";
+                        Agent.Render.Frame(X, Y, W, H);
+
+                        fs.writeFileSync("other/DEBUG_OCR.png", Buffer);
+                    }
+
+                    return text.trim();
+                }catch(e){
+                    console.warn(`Ошибка Agent.OCR.Read(${X}, ${Y}, ${W}, ${H}):`, e);
+                    return "";
+                }
             }
         }
     },
@@ -257,20 +415,29 @@ global.Agent = {
 
                     let RectBuffer = Buffer.alloc(16);
 
-                    if(__N_GetWindowRect(HWND, RectBuffer)){
-                        const L = RectBuffer.readInt32LE(0 );
-                        const T = RectBuffer.readInt32LE(4 );
-                        const R = RectBuffer.readInt32LE(8 );
-                        const B = RectBuffer.readInt32LE(12);
+                    let HR = __N_DwmGetWindowAttribute(HWND, DWMWA_EXTENDED_FRAME_BOUNDS, RectBuffer, 16);
 
-                        return {
-                            X: L,
-                            Y: T,
-                            W: R - L,
-                            H: B - T
-                        };
+                    if(HR < 0){
+                        if(!__N_GetWindowRect(HWND, RectBuffer)){
+                            return { X: 0, Y: 0, W: 0, H: 0 };
+                        }
                     }
-                    return { X: 0, Y: 0, W: 0, H: 0 };
+
+                    const L = RectBuffer.readInt32LE(0 );
+                    const T = RectBuffer.readInt32LE(4 );
+                    const R = RectBuffer.readInt32LE(8 );
+                    const B = RectBuffer.readInt32LE(12);
+
+                    let Result = {
+                        X: L,
+                        Y: T,
+                        W: R - L,
+                        H: B - T
+                    };
+
+                    if(Result.W < 0 || Result.H < 0){ return { X: 0, Y: 0, W: 0, H: 0 }; }
+
+                    return Result;
                 }catch(e){
                     console.warn(`Ошибка Agent.Window.GetRect(${PID}):`, e);
                     return { X: 0, Y: 0, W: 0, H: 0 };

@@ -1,5 +1,35 @@
 require("./lib/core")
 
+// ----------------------------------------------------------------------
+
+let BrowserRect;
+
+async function ReadAddress(){
+    let Rect = Agent.Other.Relative(
+        BrowserRect,
+        {X: 0, Y: 0, W: 1920, H: 1040},
+        {X: 338, Y: 25, W: 938, H: 26},
+        { ScaleH: false }
+    );
+    return await Agent.Vision.OCR.Read(Rect.X, Rect.Y, Rect.W, Rect.H);
+}
+
+function CheckPlugin(){
+    let Point = Agent.Other.Relative(
+        BrowserRect,
+        {X: 0, Y: 0, W: 1920, H: 1040},
+        {X: 1888, Y: 138}
+    );
+    let Color = Agent.Vision.Pixel(Point.X, Point.Y);
+    return Agent.Other.CompareColors(Color, { R: 156, G: 13, B: 5 }) > 0.9;
+}
+
+async function CheckCorrectPage(){
+    return (await ReadAddress()).includes("github.com") && CheckPlugin();
+}
+
+// ----------------------------------------------------------------------
+
 try{
     console.log("Запуск...")
 
@@ -10,12 +40,20 @@ try{
 
     console.log("Инициализация рендера")
 
+    Agent.Vision.ShowDebug = true;
+
     Agent.Render.Init(() => {
         async function InitBrowser(){
             console.log(`Привязка к браузеру: ${BrowserPID}, "${Agent.Programs.Window.GetTitle(BrowserPID)}"`)
 
+            let CurrentStage = -1;
+
+            const Stage_CheckPage = 0;
+
             async function InitCycle(){
                 try{
+                    CurrentStage = Stage_CheckPage;
+
                     let Counter = 0;
 
                     let Work = true;
@@ -31,21 +69,26 @@ try{
                             break;
                         }
 
-                        let BrowserRect = Agent.Programs.Window.GetRect(BrowserPID);
+                        BrowserRect = Agent.Programs.Window.GetRect(BrowserPID);
 
                         Agent.Render.Color = "red";
 
                         Agent.Render.Frame(BrowserRect.X, BrowserRect.Y, BrowserRect.W, BrowserRect.H);
 
-                        let MousePosition = Agent.Mouse.GetPosition();
-                        let PIXEL = Agent.Vision.Pixel(MousePosition.X, MousePosition.Y);
+                        switch(CurrentStage){
+                            case Stage_CheckPage: {
+                                if(await CheckCorrectPage()){
+                                    console.log("😋")
+                                }else{
+                                    console.warn("Откройте страницу с репозиторием! И включите плагин!");
+                                }
 
-                        Agent.Render.Color = PIXEL.HEX;
-                        Agent.Render.Rect(0, 0, 200, 200);
+                                break;
+                            }
+                        }
 
                         Agent.Render.Update();
-
-                        await new Promise(R => setTimeout(R, 50));
+                        await Agent.Other.Wait(0.05);
                     }
                 }catch(e){
                     throw new Error(`Ошибка в цикле: ${e.message}`)
