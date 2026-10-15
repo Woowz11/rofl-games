@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>GITHUB INDEXER PRO</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #000; color: #fff; font-family: 'Segoe UI', sans-serif; }
+        .card { background-color: #0c0c0c; border: 2px solid #333; border-radius: 12px; }
+        
+        label { color: #00d9ff; font-weight: bold; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; margin-bottom: 8px; }
+        
+        .form-control { 
+            background-color: #000; border: 2px solid #444; color: #fff !important; 
+            border-radius: 8px; font-weight: 500;
+        }
+        .form-control:focus { border-color: #00d9ff; box-shadow: 0 0 15px rgba(0, 217, 255, 0.3); background-color: #000; }
+        .form-control:disabled { background-color: #111; color: #666; border-color: #222; }
+
+        .log-container { height: 480px; overflow-y: auto; background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; font-family: 'Consolas', monospace; }
+        .log-entry { border-left: 4px solid #333; padding-left: 12px; margin-bottom: 6px; font-size: 13px; color: #fff; }
+        .log-info { color: #00d9ff; border-color: #00d9ff; }
+        .log-success { color: #00ff00; border-color: #00ff00; }
+        .log-error { color: #ff3333; border-color: #ff3333; }
+
+        .stats-val { font-size: 42px; font-weight: 900; color: #fff; }
+        .limit-badge { background: #000; border: 2px solid #00d9ff; padding: 15px; border-radius: 10px; min-width: 220px; text-align: center; }
+        
+        .btn-outline-info { color: #00d9ff; border-color: #00d9ff; font-weight: bold; border-width: 2px; }
+        .btn-outline-info:hover { background-color: #00d9ff; color: #000; }
+        
+        .btn-primary { background-color: #00d9ff; border: none; color: #000; font-weight: 900; padding: 15px; font-size: 1.2rem; }
+        .btn-primary:hover { background-color: #00b8d9; transform: scale(1.02); }
+        .btn-primary:disabled { background-color: #333; color: #666; transform: none; }
+    </style>
+</head>
+<body>
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-secondary pb-3">
+        <h2 class="fw-black m-0">GITHUB_INDEXER <span style="color:#00d9ff">PRO</span></h2>
+        <div class="limit-badge">
+            <div class="small fw-bold text-info">API REMAINING</div>
+            <div id="limitRem" class="stats-val" style="font-size: 24px;">-- / --</div>
+            <div id="resetTimer" class="small text-white mt-1">СБРОС: --:--</div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-5">
+            <div class="card p-4 mb-3 shadow">
+                <div class="d-flex gap-2 mb-4">
+                    <button class="btn btn-outline-info w-100" id="btnExport">ЭКСПОРТ КОНФИГА</button>
+                    <button class="btn btn-outline-info w-100" onclick="document.getElementById('fileLoad').click()">ИМПОРТ КОНФИГА</button>
+                    <input type="file" id="fileLoad" style="display:none" accept=".json">
+                </div>
+
+                <div class="mb-3">
+                    <label>GITHUB TOKEN</label>
+                    <input id="token" type="password" class="form-control" placeholder="ghp_...">
+                </div>
+                
+                <div class="mb-3">
+                    <label>REPOSITORY URL / NAME</label>
+                    <input id="repo" type="text" class="form-control" placeholder="Woowz11/ProfileRender">
+                </div>
+
+                <div class="mb-4">
+                    <label>SAVE PATH (JSONL)</label>
+                    <div class="input-group">
+                        <input id="outputPath" type="text" class="form-control" readonly placeholder="КЛИКНИТЕ ОБЗОР -->">
+                        <button class="btn btn-outline-info" id="browseBtn">ОБЗОР</button>
+                    </div>
+                </div>
+
+                <div class="row text-center my-4 border-top border-bottom border-secondary py-3">
+                    <div class="col border-end border-secondary">
+                        <div class="small text-info fw-bold">FILES</div>
+                        <div id="countFiles" class="stats-val">0</div>
+                    </div>
+                    <div class="col">
+                        <div class="small text-info fw-bold">FOLDERS</div>
+                        <div id="countFolders" class="stats-val">0</div>
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2 mt-4">
+                    <button id="startBtn" class="btn btn-primary">НАЧАТЬ СКАН</button>
+                    <div class="btn-group w-100">
+                        <button id="pauseBtn" class="btn btn-outline-warning fw-bold">ПАУЗА</button>
+                        <button id="resetBtn" class="btn btn-outline-danger fw-bold">СБРОС</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <div class="card p-3 h-100">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-bold text-info">SYSTEM MONITOR</span>
+                    <span id="statusBadge" class="badge bg-success p-2">READY</span>
+                </div>
+                <div id="log" class="log-container"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    const logBox = document.getElementById('log');
+    let resetTs = 0;
+
+    function addLog(type, msg) {
+        const div = document.createElement('div');
+        div.className = `log-entry log-${type}`;
+        div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logBox.appendChild(div);
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    // Обновляем токены при вводе в поле
+    document.getElementById('token').oninput = (e) => socket.emit('check-limits', e.target.value);
+
+    // Таймер сброса
+    setInterval(() => {
+        if(resetTs > 0) {
+            const diff = resetTs - Math.floor(Date.now()/1000);
+            if(diff > 0) {
+                const m = Math.floor(diff/60), s = diff%60;
+                document.getElementById('resetTimer').innerText = `СБРОС: ${m}:${String(s).padStart(2,'0')}`;
+            }
+        }
+    }, 1000);
+
+    // Кнопки ОБЗОР и ЭКСПОРТ
+    document.getElementById('browseBtn').onclick = () => socket.emit('browse-path');
+    document.getElementById('btnExport').onclick = () => {
+        socket.emit('export-config', {
+            token: document.getElementById('token').value,
+            repo: document.getElementById('repo').value,
+            outputPath: document.getElementById('outputPath').value
+        });
+    };
+
+    socket.on('path-selected', (path) => {
+        document.getElementById('outputPath').value = path;
+        addLog('info', `Выбран путь сохранения: ${path}`);
+    });
+
+    document.getElementById('fileLoad').onchange = (e) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const cfg = JSON.parse(ev.target.result);
+            document.getElementById('token').value = cfg.token || '';
+            document.getElementById('repo').value = cfg.repo || '';
+            document.getElementById('outputPath').value = cfg.outputPath || '';
+            socket.emit('check-limits', cfg.token);
+            addLog('success', 'Конфигурация импортирована.');
+        };
+        reader.readAsText(e.target.files[0]);
+    };
+
+    socket.on('scanning-state', (isScanning) => {
+        document.querySelectorAll('input, #browseBtn, #startBtn, #btnExport').forEach(i => i.disabled = isScanning);
+        document.getElementById('statusBadge').className = isScanning ? 'badge bg-danger p-2' : 'badge bg-success p-2';
+        document.getElementById('statusBadge').innerText = isScanning ? 'SCANNING' : 'READY';
+    });
+
+    socket.on('limits', (data) => {
+        document.getElementById('limitRem').innerText = `${data.remaining} / ${data.limit}`;
+        resetTs = data.reset;
+    });
+
+    socket.on('log', (data) => addLog(data.type, data.msg));
+    socket.on('status', (data) => {
+        document.getElementById('countFiles').innerText = data.stats.fileCount;
+        document.getElementById('countFolders').innerText = data.stats.folderCount;
+    });
+
+    document.getElementById('startBtn').onclick = () => {
+        socket.emit('start', {
+            token: document.getElementById('token').value,
+            repo: document.getElementById('repo').value,
+            outputPath: document.getElementById('outputPath').value
+        });
+    };
+
+    document.getElementById('pauseBtn').onclick = () => socket.emit('pause');
+    document.getElementById('resetBtn').onclick = () => { if(confirm('Сбросить весь прогресс?')) socket.emit('reset'); };
+</script>
+</body>
+</html>
