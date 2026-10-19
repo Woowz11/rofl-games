@@ -3,33 +3,33 @@
 // Author: Woowz11 & AI
 // Title: Line Displacement
 // Version: 3.5
-// Desc: VHS-глитч со сдвигом полос, направлением сдвига, каналами, волной и Voronoi-искажением линий
+// Desc: VHS-глитч со сдвигом полос, направлением, каналами, волной и Voronoi-искажением
 // Keywords: glitch,vhs,displacement,line,shift,rgb,channel,rotate,voronoi,fracture
 // URL:
 // Help:
 
 #region UICode
-IntSliderControl Amount = 50;             // [0,2000] Максимальная сила смещения
-IntSliderControl LineHeight = 4;          // [1,500] Толщина полосы (в пикселях)
-IntSliderControl HeightVariance = 0;      // [0,100] Случайный разброс толщины полос (%)
-IntSliderControl Probability = 50;        // [0,100] Шанс смещения для каждой полосы (%)
-IntSliderControl NumColumns = 1;          // [1,100] Количество колонок (независимых зон)
-AngleControl Angle = 0;                   // [0,360] Направление, в котором сдвигаются пиксели
-AngleControl LineAngle = 90;              // [0,360] Поворот самих полос/линий
-CheckboxControl RandomDirection = true;   // Каждая полоса сдвигается в случайную сторону
-CheckboxControl WrapEdges = false;        // Края заворачиваются (выкл = растягиваются)
-CheckboxControl InvertAlternateColumns = false; // Через одну колонку — инвертировать направление
-IntSliderControl ChannelDistR = 100;      // [0,500] Дистанция сдвига красного канала (%)
-IntSliderControl ChannelDistG = 100;      // [0,500] Дистанция сдвига зелёного канала (%)
-IntSliderControl ChannelDistB = 100;      // [0,500] Дистанция сдвига синего канала (%)
-IntSliderControl ChannelDistA = 100;      // [0,500] Дистанция сдвига прозрачности (%)
-DoubleSliderControl WaveAmplitude = 0;    // [0,200] Амплитуда волны (только внутри смещённых полос)
+IntSliderControl Amount = 50;             // [0,2000] Сила смещения
+IntSliderControl LineHeight = 4;          // [1,500] Толщина полосы
+IntSliderControl HeightVariance = 0;      // [0,100] Разброс толщины (%)
+IntSliderControl Probability = 50;        // [0,100] Шанс сдвига полосы (%)
+IntSliderControl NumColumns = 1;          // [1,100] Кол-во колонок
+AngleControl Angle = 0;                   // [0,360] Направление сдвига
+AngleControl LineAngle = 90;              // [0,360] Поворот полос
+CheckboxControl RandomDirection = true;   // Случайная сторона сдвига
+CheckboxControl WrapEdges = false;        // Заворачивать края
+CheckboxControl InvertAlternateColumns = false; // Инверт через колонку
+IntSliderControl ChannelDistR = 100;      // [0,500] Сдвиг R (%)
+IntSliderControl ChannelDistG = 100;      // [0,500] Сдвиг G (%)
+IntSliderControl ChannelDistB = 100;      // [0,500] Сдвиг B (%)
+IntSliderControl ChannelDistA = 100;      // [0,500] Сдвиг Alpha (%)
+DoubleSliderControl WaveAmplitude = 0;    // [0,200] Амплитуда волны
 DoubleSliderControl WaveFrequency = 1;    // [0.01,20] Частота волны
-DoubleSliderControl VoronoiAmount = 0;    // [0,50] Искажение линий в полигоны (0 = прямые линии, больше = чистый Voronoi)
-IntSliderControl VoronoiScale = 50;       // [4,500] Размер ячеек Voronoi (в пикселях)
-IntSliderControl BlendOpacity = 100;      // [0,100] Насколько сильно смешивать с оригиналом
-IntSliderControl CustomSeed = 12345;      // [0,999999] Сид паттерна (двигай сам для разных вариантов)
-ReseedButtonControl Reseed = 0;           // Случайно перегенерировать паттерн (сид на экране не меняет)
+DoubleSliderControl VoronoiAmount = 0;    // [0,50] Искажение в Voronoi
+IntSliderControl VoronoiScale = 50;       // [4,500] Размер ячеек Voronoi
+IntSliderControl BlendOpacity = 100;      // [0,100] Смешение с оригиналом
+IntSliderControl CustomSeed = 12345;      // [0,999999] Сид паттерна
+ReseedButtonControl Reseed = 0;           // Случайный сид
 #endregion
 
 private int[,] columnOffsets;
@@ -194,8 +194,6 @@ void Render(Surface dst, Surface src, Rectangle rect)
             double u = x * cosL + y * sinL;
             double v = -x * sinL + y * cosL;
 
-            // Voronoi-искажение координаты u — чем больше VoronoiAmount, тем сильнее линии
-            // превращаются в ломаные полигональные границы вместо прямых полос
             if (VoronoiAmount > 0)
             {
                 double vNoise = VoronoiF1(x, y, VoronoiScale, noiseSeed);
