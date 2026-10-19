@@ -2,7 +2,7 @@
 // Submenu: Woowz-AI
 // Author: Woowz11 & AI
 // Title: Voronoi
-// Version: 1.6
+// Version: 1.8
 // Desc: Генератор шума Вороного с 12 стилями отрисовки, поддержкой замкнутой рамки (Framed), выбором типа границ и метрик
 // Keywords: voronoi,noise,cellular,texture,seamless,pattern,worley,glitch,selection,lasso,bevel,ripples,stainedglass
 // URL:
@@ -17,8 +17,8 @@ IntSliderControl Jitter = 100;            // [0,100] Случайность яч
 DoubleSliderControl MinkowskiP = 3.0;     // [1.0,10.0] Степень Минковского (для метрики Минковского)
 DoubleSliderControl EdgeContrast = 1.0;   // [0.1,20.0] Контраст границ / Размера
 CheckboxControl Invert = false;            // Инвертировать цвета
-ColorWheelControl PrimaryColor = ColorBgra.FromBgra(255, 255, 255, 255); // Цвет переднего плана (Границы / Линии)
-ColorWheelControl SecondaryColor = ColorBgra.FromBgra(0, 0, 0, 255);    // Цвет фона
+ColorWheelControl PrimaryColor = ColorBgra.FromBgra(255, 255, 255, 255); // [White?] Цвет ячеек (Fill / передний план)
+ColorWheelControl SecondaryColor = ColorBgra.FromBgra(0, 0, 0, 255); // [Black?] Цвет границ (Edges / Lines, фон)
 IntSliderControl CustomSeed = 12345;      // [0,999999] Сид (Seed)
 ReseedButtonControl Reseed = 0;           // Случайный сид
 #endregion
@@ -29,7 +29,6 @@ private double cellWidth;
 private double cellHeight;
 private int finalSeed;
 
-// Координаты и размеры выделенной области (Selection)
 private int selX;
 private int selY;
 private int selWidth;
@@ -89,7 +88,7 @@ private void GetVoronoi(double px, double py, out double f1, out double f2, out 
             double ptX = 0, ptY = 0;
             int cellId = 0;
 
-            if (BoundaryMode == 0) // 1. Бесшовный (Seamless Tiling по рамке выделения)
+            if (BoundaryMode == 0)
             {
                 int gx = ((nx % numCellsX) + numCellsX) % numCellsX;
                 int gy = ((ny % numCellsY) + numCellsY) % numCellsY;
@@ -104,7 +103,7 @@ private void GetVoronoi(double px, double py, out double f1, out double f2, out 
                 ptY = selY + (gy + 0.5 + (jy - 0.5) * jitterAmount) * cellHeight + offsetY;
                 cellId = gx + gy * numCellsX;
             }
-            else if (BoundaryMode == 1) // 2. Стандартный (Infinite Grid)
+            else if (BoundaryMode == 1)
             {
                 int gx = nx;
                 int gy = ny;
@@ -116,7 +115,7 @@ private void GetVoronoi(double px, double py, out double f1, out double f2, out 
                 ptY = selY + (gy + 0.5 + (jy - 0.5) * jitterAmount) * cellHeight;
                 cellId = gx + gy * 10007;
             }
-            else if (BoundaryMode == 2) // 3. Ограниченный рамкой выделения (Bounded)
+            else if (BoundaryMode == 2)
             {
                 if (nx < 0 || nx >= numCellsX || ny < 0 || ny >= numCellsY) continue;
 
@@ -133,7 +132,7 @@ private void GetVoronoi(double px, double py, out double f1, out double f2, out 
                 ptY = selY + Math.Max(0, Math.Min(selHeight, rawPtY));
                 cellId = gx + gy * numCellsX;
             }
-            else // 4. Замкнутая рамка (Framed - математическое отражение точек за границы)
+            else
             {
                 int gx = Math.Max(0, Math.Min(numCellsX - 1, nx));
                 int gy = Math.Max(0, Math.Min(numCellsY - 1, ny));
@@ -178,21 +177,20 @@ private void GetVoronoi(double px, double py, out double f1, out double f2, out 
 
             switch (DistanceMetric)
             {
-                case 0: // Евклидова
+                case 0:
                     dist = Math.Sqrt(dx * dx + dy * dy);
                     break;
-                case 1: // Манхэттен
+                case 1:
                     dist = dx + dy;
                     break;
-                case 2: // Чебышёва
+                case 2:
                     dist = Math.Max(dx, dy);
                     break;
-                case 3: // Минковского
+                case 3:
                     dist = Math.Pow(Math.Pow(dx, pExp) + Math.Pow(dy, pExp), 1.0 / pExp);
                     break;
             }
 
-            // Нормализация расстояния
             dist /= (cellWidth + cellHeight) * 0.5;
 
             if (dist < f1)
@@ -223,16 +221,20 @@ void Render(Surface dst, Surface src, Rectangle rect)
 
             double val = 0;
 
+            // Усиленный базовый масштаб для чистых тонких границ по умолчанию
+            double edgeFactor = EdgeContrast;
+
             switch (RenderMode)
             {
                 case 0: // Границы ячеек (F2 - F1)
-                    val = Math.Max(0.0, 1.0 - (f2 - f1) * EdgeContrast);
+                    val = Math.Max(0.0, 1.0 - (f2 - f1) * edgeFactor);
                     break;
 
                 case 1: // Ячейки + Границы
-                    double edge = Math.Max(0.0, 1.0 - (f2 - f1) * EdgeContrast);
+                    double edge = Math.Max(0.0, 1.0 - (f2 - f1) * edgeFactor);
                     double cellHash = Hash(cellId, 7, finalSeed);
-                    val = cellHash * (1.0 - edge);
+                    // Граница теперь корректно показывает Primary поверх заливки
+                    val = cellHash * (1.0 - edge) + edge;
                     break;
 
                 case 2: // Сплошные ячейки (Solid)
@@ -271,7 +273,7 @@ void Render(Surface dst, Surface src, Rectangle rect)
                     break;
 
                 case 10: // Витраж (Stained Glass)
-                    double sgEdge = Math.Max(0.0, 1.0 - (f2 - f1) * EdgeContrast * 2.0);
+                    double sgEdge = Math.Max(0.0, 1.0 - (f2 - f1) * edgeFactor * 2.0);
                     double sgHash = Hash(cellId, 7, finalSeed);
                     double sgShade = Math.Max(0.0, 1.0 - f1 * 0.4);
                     val = sgEdge + (1.0 - sgEdge) * (sgHash * sgShade);
@@ -287,8 +289,7 @@ void Render(Surface dst, Surface src, Rectangle rect)
             if (Invert) val = 1.0 - val;
             val = Math.Max(0.0, Math.Min(1.0, val));
 
-            // Смешивание цветов
-            dst[x, y] = ColorBgra.Blend(SecondaryColor, PrimaryColor, (byte)(val * 255));
+            dst[x, y] = ColorBgra.Blend(PrimaryColor, SecondaryColor, (byte)(val * 255));
         }
     }
 }

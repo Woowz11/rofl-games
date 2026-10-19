@@ -2,9 +2,9 @@
 // Submenu: Woowz-AI
 // Author: Woowz11 & AI
 // Title: Fractal
-// Version: 3.9
-// Desc: Высокопроизводительный генератор фракталов (Идеально сглаженный Ньютон, Нова и Коллатц, точное Дерево Пифагора и Серпинский)
-// Keywords: fractal,mandelbrot,julia,barnsley,sierpinski,pythagoras,render,chaos,фрактал,мандельброт
+// Version: 4.1
+// Desc: Высокопроизводительный генератор фракталов (Идеально сглаженный Ньютон, Нова и Коллатц, точное Дерево Пифагора и Серпинский), поддержка Alpha фона
+// Keywords: fractal,mandelbrot,julia,barnsley,sierpinski,pythagoras,render,chaos,фрактал,мандельброт,alpha
 // URL:
 // Help:
 
@@ -19,9 +19,8 @@ DoubleSliderControl OffsetY = 0.0;          // [-2000.0,2000.0] Смещение
 AngleControl Rotation = 0;                  // [-180,180] Угол поворота
 DoubleSliderControl JuliaCx = -0.7;         // [-2.0,2.0] Константа Cx (Жюлиа, Феникс, Нова)
 DoubleSliderControl JuliaCy = 0.27015;      // [-2.0,2.0] Константа Cy (Жюлиа, Феникс, Нова)
-ColorWheelControl BgColor = ColorBgra.FromBgra(0, 0, 0, 255); // Цвет заднего фона (Background)
-IntSliderControl BgAlpha = 255;             // [0,255] Прозрачность фона (Alpha)
-ListBoxControl ColorMode = 4;               // Цветовая палитра|Классический огонь|Электрический синий|Изумрудные грезы|Монохром|Радужный спектр|Психоделический неон|Пастельное свечение|Золотое свечение|Глубокий космос|Фазовый цвет
+ColorWheelControl BgColor = ColorBgra.FromBgra(0, 0, 0, 255); // [Black?] Цвет заднего фона (Background)
+ListBoxControl ColorMode = 4;               // Цветовая палитра|Классический огонь|Электрический синий|Изумрудные грезы|Монохром|Радужный спектр|Психоделический неон|Пастельное свечение|Золотое свечение|Глубокий космос|Фазовый цвет|Монохром (Волна)
 DoubleSliderControl ColorCycle = 5.0;       // [0.1,50.0] Частота / Цикличность цвета
 DoubleSliderControl ColorOffset = 0.0;      // [0.0,1.0] Сдвиг фазы цвета
 CheckboxControl SmoothColors = true;        // Плавный градиент цветов (Smooth Colors)
@@ -153,12 +152,7 @@ void Render(Surface dst, Surface src, Rectangle rect)
     double juliaCx = JuliaCx;
     double juliaCy = JuliaCy;
 
-    ColorBgra effectiveBgColor = ColorBgra.FromBgra(
-        BgColor.B, 
-        BgColor.G, 
-        BgColor.R, 
-        (byte)Math.Max(0, Math.Min(255, BgAlpha))
-    );
+    ColorBgra effectiveBgColor = BgColor;
 
     for (int y = rect.Top; y < rect.Bottom; y++)
     {
@@ -960,6 +954,10 @@ private ColorBgra MapColor(double iter, int maxIter, double trapDist, int rootIn
             r = (byte)Math.Max(0, Math.Min(255, (int)(127.5 * (1.0 + Math.Sin(t * Math.PI * 2.0)))));
             g = (byte)Math.Max(0, Math.Min(255, (int)(127.5 * (1.0 + Math.Sin(t * Math.PI * 2.0 + 2.0 * Math.PI / 3.0)))));
             b = (byte)Math.Max(0, Math.Min(255, (int)(127.5 * (1.0 + Math.Sin(t * Math.PI * 2.0 + 4.0 * Math.PI / 3.0)))));
+            break;
+        case 10: // Монохром (Волна): 0 = белый, 0.5 = черный, 1 = белый
+            byte valWave = (byte)Math.Max(0, Math.Min(255, (int)(255 * Math.Abs(2.0 * t - 1.0))));
+            r = valWave; g = valWave; b = valWave;
             break;
     }
 

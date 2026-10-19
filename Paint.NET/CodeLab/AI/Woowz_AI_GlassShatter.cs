@@ -1,48 +1,41 @@
 // Name: Glass Shatter
 // Submenu: Woowz-AI
 // Author: Woowz11 & AI
-// Title: Glass Shatter (Mirror Impact v3.6)
-// Version: 3.6
-// Desc: Эффект удара по зеркалу с рваной пробоиной по контурам осколков, выносом центра за края, слайдером прозрачности фона и матовостью
-// Keywords: glass,shatter,crack,mirror,impact,hammer,radial,spiderweb,refraction,glow,holes,alpha,void
+// Title: Glass Shatter (Mirror Impact v3.7)
+// Version: 3.7
+// Desc: Эффект удара по зеркалу с рваной пробоиной, объемным освещением граней, бликами-сверканиями и полной поддержкой Alpha для всех цветов
+// Keywords: glass,shatter,crack,mirror,impact,hammer,radial,spiderweb,refraction,glow,holes,alpha,void,lighting,specular,sparkle
 // URL:
 // Help:
 
 #region UICode
-DoubleSliderControl ImpactX = 0.0;        // [-3.0,3.0] Эпицентр удара X (Можно за края)
-DoubleSliderControl ImpactY = 0.0;        // [-3.0,3.0] Эпицентр удара Y (Можно за края)
-
-// --- Структура разлома и разлета ---
-IntSliderControl RadialSpokes = 28;       // [6,80] Радиальные лучи (Radial Rays)
-IntSliderControl ConcentricRings = 16;    // [3,50] Концентрические кольца (Rings)
-DoubleSliderControl CrackRandomness = 0.4; // [0.0,1.0] Изогнутость трещин (Wobble)
-DoubleSliderControl CenterCrushSize = 0.3; // [0.0,1.0] Зона мелкой крошки в центре
-DoubleSliderControl CenterHoleRadius = 0.0; // [0.0,0.8] Рваная пробоина в центре (Blow Hole)
-
-// --- Выпавшие осколки & Фон ---
-DoubleSliderControl FallenShardChance = 0.15; // [0.0,1.0] Шанс выпадения осколков (Fallen Shards)
-DoubleSliderControl ExplosionPush = 10.0;     // [0.0,100.0] Сила разлета осколков (Dislodged Shift)
-ColorWheelControl VoidColor = ColorBgra.FromBgra(0, 0, 0, 255); // Цвет пробоины / фона (Void Color)
-IntSliderControl VoidOpacity = 0;         // [0,100] Непрозрачность фона (0 = Прозрачный / Альфа)
-
-// --- Оптика и Свойства Стекла ---
-DoubleSliderControl RefractionIndex = 25.0; // [0.0,100.0] Сила преломления (Refraction)
-DoubleSliderControl Shard3DTilt = 0.4;    // [0.0,1.0] 3D-прогиб осколков (Radial Tilt)
-DoubleSliderControl ChromaticDispersion = 2.0; // [0.0,10.0] Хроматическая дисперсия (Prism Split)
-DoubleSliderControl GlassFrosting = 0.15; // [0.0,1.0] Матовость / Помутнение (Internal Frost)
-DoubleSliderControl DoubleRefraction = 0.3; // [0.0,1.0] Двойное отражение (Glass Thickness)
-
-// --- Грани и Свечение Стекла ---
-DoubleSliderControl GlassEdgeGlow = 2.5;  // [0.0,5.0] Блик на срезе стекла (Glass Edge Glow)
-ColorWheelControl GlassEdgeColor = ColorBgra.FromBgra(255, 235, 190, 255); // Цвет отражения грани (Cyan/White)
-DoubleSliderControl CrackThickness = 1.5; // [0.0,10.0] Ширина щелей (Crack Gap)
-ColorWheelControl CrackColor = ColorBgra.FromBgra(5, 5, 8, 255); // Цвет глубины трещин
-
-// --- Качество и рендеринг ---
-ListBoxControl WrapMode = 2;              // Заворачивание краев|Повтор (Seamless Repeat)|Зеркало (Reflect)|Зажим (Clamp)|Прозрачность
-DoubleSliderControl Smoothness = 0.0;     // [0.0,5.0] Сглаживание (Anti-Aliasing)
-IntSliderControl BlendOpacity = 100;      // [0,100] Непрозрачность (Blend Opacity)
-IntSliderControl CustomSeed = 0;          // [0,1000] Сид случайности (Random Seed)
+DoubleSliderControl ImpactX = 0; // [-3,3] Эпицентр удара X (Можно за края)
+DoubleSliderControl ImpactY = 0; // [-3,3] Эпицентр удара Y (Можно за края)
+IntSliderControl RadialSpokes = 28; // [6,80] Радиальные лучи (Radial Rays)
+IntSliderControl ConcentricRings = 16; // [3,50] Концентрические кольца (Rings)
+DoubleSliderControl CrackRandomness = 0.4; // [0,1] Изогнутость трещин (Wobble)
+DoubleSliderControl CenterCrushSize = 0.3; // [0,1] Зона мелкой крошки в центре
+DoubleSliderControl CenterHoleRadius = 0; // [0,0.8] Рваная пробоина в центре (Blow Hole)
+DoubleSliderControl FallenShardChance = 0.15; // [0,1] Шанс выпадения осколков (Fallen Shards)
+DoubleSliderControl ExplosionPush = 10; // [0,100] Сила разлета осколков (Dislodged Shift)
+ColorWheelControl VoidColor = ColorBgra.FromBgra(0, 0, 0, 0); // [Transparent?] Цвет пробоины / фона
+DoubleSliderControl RefractionIndex = 25; // [0,100] Сила преломления (Refraction)
+DoubleSliderControl Shard3DTilt = 0.4; // [0,1] 3D-прогиб осколков (Radial Tilt)
+DoubleSliderControl ChromaticDispersion = 2; // [0,10] Хроматическая дисперсия (Prism Split)
+DoubleSliderControl GlassFrosting = 0.15; // [0,1] Матовость / Помутнение (Internal Frost)
+DoubleSliderControl DoubleRefraction = 0.3; // [0,1] Двойное отражение (Glass Thickness)
+AngleControl LightAngle = 135; // [0,360] Направление виртуального света (Lighting Angle)
+DoubleSliderControl LightElevation = 0.6; // [0,1] Высота источника света (0 = сбоку, 1 = сверху)
+DoubleSliderControl ShadingIntensity = 0.4; // [0,1] Сила объемного затенения граней (Shard Shading)
+DoubleSliderControl SparkleIntensity = 0.5; // [0,1] Яркость бликов-сверканий (Specular Sparkle)
+DoubleSliderControl GlassEdgeGlow = 2.5; // [0,5] Блик на срезе стекла (Glass Edge Glow)
+ColorWheelControl GlassEdgeColor = ColorBgra.FromBgra(255, 255, 240, 255); // [Azure?] Цвет отражения грани (Cyan/White)
+DoubleSliderControl CrackThickness = 1.5; // [0,10] Ширина щелей (Crack Gap)
+ColorWheelControl CrackColor = ColorBgra.FromBgra(0, 0, 0, 255); // [Black?] Цвет глубины трещин
+ListBoxControl WrapMode = 1; // Заворачивание краев|Повтор (Seamless Repeat)|Зеркало (Reflect)|Зажим (Clamp)|Прозрачность
+DoubleSliderControl Smoothness = 0; // [0,5] Сглаживание (Anti-Aliasing)
+IntSliderControl BlendOpacity = 100; // [0,100] Непрозрачность (Blend Opacity)
+IntSliderControl CustomSeed = 0; // [0,1000] Сид случайности (Random Seed)
 #endregion
 
 private struct GlassSite
@@ -361,12 +354,36 @@ void Render(Surface dst, Surface src, Rectangle rect)
 {
     byte opacityByte = (byte)(BlendOpacity * 255 / 100);
 
-    // Цвет фона пробоины с учетом слайдера непрозрачности
+    // Цвет фона пробоины (альфа берется напрямую из колеса цвета)
     ColorBgra effectiveVoidCol = VoidColor;
-    effectiveVoidCol.A = (byte)(VoidOpacity * 255 / 100);
 
     int aaCount;
     Offset2D[] aaOffsets = GetAAOffsets(Smoothness, out aaCount);
+
+    // Направление виртуального источника света для объемного затенения осколков
+    double lightAngleRad = LightAngle * Math.PI / 180.0;
+    double lightDirX = Math.Cos(lightAngleRad) * (1.0 - LightElevation);
+    double lightDirY = Math.Sin(lightAngleRad) * (1.0 - LightElevation);
+    double lightDirZ = LightElevation;
+    double lightLen = Math.Sqrt(lightDirX * lightDirX + lightDirY * lightDirY + lightDirZ * lightDirZ);
+    if (lightLen > 1e-6)
+    {
+        lightDirX /= lightLen;
+        lightDirY /= lightLen;
+        lightDirZ /= lightLen;
+    }
+
+    // Полу-вектор (Blinn-Phong) для бликов-сверканий на гранях
+    double halfX = lightDirX;
+    double halfY = lightDirY;
+    double halfZ = lightDirZ + 1.0;
+    double halfLen = Math.Sqrt(halfX * halfX + halfY * halfY + halfZ * halfZ);
+    if (halfLen > 1e-6)
+    {
+        halfX /= halfLen;
+        halfY /= halfLen;
+        halfZ /= halfLen;
+    }
 
     for (int y = rect.Top; y < rect.Bottom; y++)
     {
@@ -397,8 +414,20 @@ void Render(Surface dst, Surface src, Rectangle rect)
                     GlassSite secondSite = shards[secondaryIdx];
                     if (!secondSite.IsFallen && edgeDist < 3.5 && GlassEdgeGlow > 0.01)
                     {
+                        double secNx = secondSite.TiltX;
+                        double secNy = secondSite.TiltY;
+                        double secNz = 1.0;
+                        double secNLen = Math.Sqrt(secNx * secNx + secNy * secNy + secNz * secNz);
+                        if (secNLen > 1e-6)
+                        {
+                            secNx /= secNLen;
+                            secNy /= secNLen;
+                            secNz /= secNLen;
+                        }
+                        double secDiffuse = Math.Max(0.0, secNx * lightDirX + secNy * lightDirY + secNz * lightDirZ);
+
                         double t = 1.0 - (edgeDist / 3.5);
-                        double glowIntensity = t * t * GlassEdgeGlow;
+                        double glowIntensity = t * t * GlassEdgeGlow * (0.4 + 0.6 * secDiffuse);
                         byte glowA = (byte)Math.Min(255, (int)(glowIntensity * (GlassEdgeColor.A / 255.0) * 255));
 
                         baseVoidCol = ColorBgra.Blend(baseVoidCol, GlassEdgeColor, glowA);
@@ -411,6 +440,19 @@ void Render(Surface dst, Surface src, Rectangle rect)
                     accA += va;
                     continue;
                 }
+
+                // Нормаль осколка для объемного освещения (приближение через угол преломления)
+                double shardNx = site.TiltX;
+                double shardNy = site.TiltY;
+                double shardNz = 1.0;
+                double shardNLen = Math.Sqrt(shardNx * shardNx + shardNy * shardNy + shardNz * shardNz);
+                if (shardNLen > 1e-6)
+                {
+                    shardNx /= shardNLen;
+                    shardNy /= shardNLen;
+                    shardNz /= shardNLen;
+                }
+                double shardDiffuse = Math.Max(0.0, shardNx * lightDirX + shardNy * lightDirY + shardNz * lightDirZ);
 
                 // 2. Оптическое 3D-Преломление и Сдвиг
                 double sampleX = px + site.TiltX * RefractionIndex;
@@ -448,20 +490,50 @@ void Render(Surface dst, Surface src, Rectangle rect)
                     sampleCol = ColorBgra.Blend(sampleCol, frostWhite, frostByte);
                 }
 
-                // 5. Свечение граней (Glass Edge Glow)
+                // 5. Объемное освещение граней (Volumetric Shard Shading)
+                if (ShadingIntensity > 0.001 && sampleCol.A > 0)
+                {
+                    double shadeMul = 1.0 + (shardDiffuse - 0.5) * ShadingIntensity * 1.6;
+                    shadeMul = Math.Max(0.15, Math.Min(1.85, shadeMul));
+
+                    double shR = sampleCol.R * shadeMul;
+                    double shG = sampleCol.G * shadeMul;
+                    double shB = sampleCol.B * shadeMul;
+
+                    sampleCol = ColorBgra.FromBgra(
+                        (byte)Math.Max(0, Math.Min(255, (int)shB)),
+                        (byte)Math.Max(0, Math.Min(255, (int)shG)),
+                        (byte)Math.Max(0, Math.Min(255, (int)shR)),
+                        sampleCol.A
+                    );
+                }
+
+                // 6. Блики-сверкания (Specular Sparkle) на гранях, обращенных к свету
+                if (SparkleIntensity > 0.001 && sampleCol.A > 0)
+                {
+                    double specDot = Math.Max(0.0, shardNx * halfX + shardNy * halfY + shardNz * halfZ);
+                    double specular = Math.Pow(specDot, 40.0) * SparkleIntensity * 2.0;
+                    if (specular > 0.003)
+                    {
+                        byte specA = (byte)Math.Min(255, (int)(specular * 255));
+                        sampleCol = ColorBgra.Blend(sampleCol, ColorBgra.FromBgra(255, 255, 255, 255), specA);
+                    }
+                }
+
+                // 7. Свечение граней (Glass Edge Glow)
                 double crackGap = CrackThickness;
                 double glowWidth = 3.5;
 
                 if (GlassEdgeGlow > 0.01 && edgeDist >= crackGap && edgeDist < crackGap + glowWidth)
                 {
                     double t = 1.0 - ((edgeDist - crackGap) / glowWidth);
-                    double glowIntensity = t * t * GlassEdgeGlow;
+                    double glowIntensity = t * t * GlassEdgeGlow * (0.4 + 0.6 * shardDiffuse);
 
                     byte glowA = (byte)Math.Min(255, (int)(glowIntensity * (GlassEdgeColor.A / 255.0) * 255));
                     sampleCol = ColorBgra.Blend(sampleCol, GlassEdgeColor, glowA);
                 }
 
-                // 6. Темная щель трещины (Crack Gap Void)
+                // 8. Темная щель трещины (Crack Gap Void)
                 if (crackGap > 0.01 && edgeDist < crackGap)
                 {
                     double gapAlpha = (1.0 - (edgeDist / crackGap)) * (CrackColor.A / 255.0);

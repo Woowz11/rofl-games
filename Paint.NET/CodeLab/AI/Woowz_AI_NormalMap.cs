@@ -2,9 +2,9 @@
 // Submenu: Woowz-AI
 // Author: Woowz11 & AI
 // Title: Normal Map
-// Version: 1.5
-// Desc: Генератор и конвертер карт нормалей с исправленной математикой высот (Черный=Низко, Белый=Высоко), OpenGL, DirectX, SSBump и точным 3D-светом
-// Keywords: normal,map,bump,heightmap,opengl,directx,vulkan,ssbump,3d,light,sobel,seamless,converter,ambient
+// Version: 1.6
+// Desc: Генератор и конвертер карт нормалей с исправленной математикой высот (Черный=Низко, Белый=Высоко), OpenGL, DirectX, SSBump и точным 3D-светом, поддержка Alpha
+// Keywords: normal,map,bump,heightmap,opengl,directx,vulkan,ssbump,3d,light,sobel,seamless,converter,ambient,alpha
 // URL:
 // Help:
 
@@ -26,15 +26,15 @@ CheckboxControl UseExistingNormalMap = false; // Использовать хол
 ListBoxControl InputNormalFormat = 0;         // Формат входной нормали|OpenGL (Y+)|DirectX / Vulkan (Y-)
 
 // --- Пользовательские цвета (для формата "Пользовательские цвета") ---
-ColorWheelControl CustomXColor = ColorBgra.FromBgra(0, 0, 255, 255); // Цвет оси X (Red)
-ColorWheelControl CustomYColor = ColorBgra.FromBgra(0, 255, 0, 255); // Цвет оси Y (Green)
-ColorWheelControl CustomZColor = ColorBgra.FromBgra(255, 0, 0, 255); // Цвет оси Z (Blue)
+ColorWheelControl CustomXColor = ColorBgra.FromBgra(0, 0, 255, 255); // [Red?] Цвет оси X
+ColorWheelControl CustomYColor = ColorBgra.FromBgra(0, 255, 0, 255); // [Lime?] Цвет оси Y
+ColorWheelControl CustomZColor = ColorBgra.FromBgra(255, 0, 0, 255); // [Blue?] Цвет оси Z
 
 // --- 3D-Отладка освещения ---
 CheckboxControl EnableLightPreview = false; // Включить 3D-источник света
 AngleControl LightAngle = 90;               // [0,360] Направление света (Azimuth)
 IntSliderControl LightElevation = 45;       // [0,90] Высота света (Elevation)
-ColorWheelControl LightColor = ColorBgra.FromBgra(255, 255, 255, 255); // Цвет источника света
+ColorWheelControl LightColor = ColorBgra.FromBgra(255, 255, 255, 255); // [White] Цвет источника света
 DoubleSliderControl AmbientIntensity = 0.15; // [0.0,1.0] Сила фонового света (Ambient)
 DoubleSliderControl LightIntensity = 1.0;   // [0.0,3.0] Яркость света (Diffuse)
 DoubleSliderControl SpecularIntensity = 0.5; // [0.0,2.0] Интенсивность бликов (Specular)
@@ -381,12 +381,14 @@ void Render(Surface dst, Surface src, Rectangle rect)
                     float rC = (CustomXColor.R * wX + CustomYColor.R * wY + CustomZColor.R * wZ);
                     float gC = (CustomXColor.G * wX + CustomYColor.G * wY + CustomZColor.G * wZ);
                     float bC = (CustomXColor.B * wX + CustomYColor.B * wY + CustomZColor.B * wZ);
+                    float aC = (CustomXColor.A * wX + CustomYColor.A * wY + CustomZColor.A * wZ);
 
                     byte rByte = (byte)Math.Max(0, Math.Min(255, (int)rC));
                     byte gByte = (byte)Math.Max(0, Math.Min(255, (int)gC));
                     byte bByte = (byte)Math.Max(0, Math.Min(255, (int)bC));
+                    byte aByte = (byte)Math.Max(0, Math.Min(255, (int)aC));
 
-                    finalColor = ColorBgra.FromBgra(bByte, gByte, rByte, src[x, y].A);
+                    finalColor = ColorBgra.FromBgra(bByte, gByte, rByte, aByte);
                 }
                 else // Стандартный вывод (OpenGL / DirectX)
                 {
