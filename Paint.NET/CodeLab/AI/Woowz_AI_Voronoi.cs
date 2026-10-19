@@ -1,7 +1,7 @@
-// Name: Voronoi Generator
+// Name: Voronoi
 // Submenu: Woowz-AI
 // Author: Woowz11 & AI
-// Title: Voronoi Generator
+// Title: Voronoi
 // Version: 1.3
 // Desc: Генератор шума Вороного с поддержкой произвольного выделения (Лассо), выбором типа границ, метрик и стилей
 // Keywords: voronoi,noise,cellular,texture,seamless,pattern,worley,glitch,selection,lasso
@@ -16,9 +16,9 @@ IntSliderControl CellSize = 60;           // [1,500] Размер ячеек
 IntSliderControl Jitter = 100;            // [0,100] Случайность ячеек (%)
 DoubleSliderControl MinkowskiP = 3.0;     // [1.0,10.0] Степень Минковского (для метрики Минковского)
 DoubleSliderControl EdgeContrast = 1.0;   // [0.1,20.0] Контраст границ
-CheckboxControl Invert = true;            // Инвертировать цвета
-ColorWheelControl PrimaryColor = ColorBgra.FromBgra(255, 255, 255, 255); // Цвет 1 (Передний план)
-ColorWheelControl SecondaryColor = ColorBgra.FromBgra(0, 0, 0, 255);    // Цвет 2 (Фон)
+CheckboxControl Invert = false;            // Инвертировать цвета
+ColorWheelControl PrimaryColor = ColorBgra.FromBgra(0, 0, 0, 255); // Цвет 1 (Передний план)
+ColorWheelControl SecondaryColor = ColorBgra.FromBgra(255, 255, 255, 255);    // Цвет 2 (Фон)
 IntSliderControl CustomSeed = 12345;      // [0,999999] Сид (Seed)
 ReseedButtonControl Reseed = 0;           // Случайный сид
 #endregion
