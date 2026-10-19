@@ -2,8 +2,8 @@
 // Submenu: Woowz-AI
 // Author: Woowz11 & AI
 // Title: Normal Map
-// Version: 1.4
-// Desc: Генератор и конвертер карт нормалей с исправленной математикой высот (Черный=Низко, Белый=Высоко), OpenGL, DirectX, SSBump и 3D-светом
+// Version: 1.5
+// Desc: Генератор и конвертер карт нормалей с исправленной математикой высот (Черный=Низко, Белый=Высоко), OpenGL, DirectX, SSBump и точным 3D-светом
 // Keywords: normal,map,bump,heightmap,opengl,directx,vulkan,ssbump,3d,light,sobel,seamless,converter,ambient
 // URL:
 // Help:
@@ -165,7 +165,7 @@ void Render(Surface dst, Surface src, Rectangle rect)
     float ly = (float)(Math.Cos(lRadElev) * Math.Sin(lRadAzimuth));
     float lz = (float)Math.Sin(lRadElev);
 
-    // Цвет света
+    // Цвет источника света (нормализован 0.0 - 1.0)
     float lColorR = LightColor.R / 255f;
     float lColorG = LightColor.G / 255f;
     float lColorB = LightColor.B / 255f;
@@ -290,8 +290,6 @@ void Render(Surface dst, Surface src, Rectangle rect)
                 }
 
                 // Математически точная ориентация нормалей OpenGL Space:
-                // nx = -dx (подъем вправо делает нормаль направленной влево)
-                // ny = +dy (подъем вниз делает нормаль направленной вверх в OpenGL Y+)
                 nx = -dx;
                 ny = dy;
                 nz = 1.0f;
@@ -318,22 +316,25 @@ void Render(Surface dst, Surface src, Rectangle rect)
             // --- 3D-ОТЛАДКА ИСТОЧНИКА СВЕТА ---
             if (EnableLightPreview)
             {
-                // Рассеивание (Diffuse N * L)
+                // Рассеивание (Lambertian Diffuse N * L)
                 float NdotL = Math.Max(0f, nx * lx + ny * ly + nz * lz);
-                // Блики по Блинну-Фонгу (Specular)
+
+                // Зеркальные блики Блинна-Фонга (Specular N * H)
                 float NdotH = Math.Max(0f, nx * hx + ny * hy + nz * hz);
-                float spec = (float)Math.Pow(NdotH, 32) * (float)SpecularIntensity;
+                float specFactor = (NdotL > 0f) ? (float)Math.Pow(NdotH, 32) * (float)SpecularIntensity : 0f;
 
                 float ambient = (float)AmbientIntensity;
                 float diffFactor = NdotL * (float)LightIntensity;
 
                 float baseR, baseG, baseB;
 
-                if (LightOnly)
+                // ИСПРАВЛЕНИЕ БАГА: Если включен LightOnly или используется готовая карта нормалей,
+                // берем нейтральный серый материал (0.75), чтобы вектор цвета карты нормалей не искажал цвет света!
+                if (LightOnly || UseExistingNormalMap)
                 {
-                    baseR = 0.8f;
-                    baseG = 0.8f;
-                    baseB = 0.8f;
+                    baseR = 0.75f;
+                    baseG = 0.75f;
+                    baseB = 0.75f;
                 }
                 else
                 {
@@ -343,13 +344,14 @@ void Render(Surface dst, Surface src, Rectangle rect)
                     baseB = srcCol.B / 255f;
                 }
 
-                float finalR = baseR * (ambient + diffFactor * lColorR) + spec * lColorR;
-                float finalG = baseG * (ambient + diffFactor * lColorG) + spec * lColorG;
-                float finalB = baseB * (ambient + diffFactor * lColorB) + spec * lColorB;
+                // Точная формулировка освещения: Ambient + (Diffuse * LightColor) + (Specular * LightColor)
+                float finalR = baseR * (ambient + diffFactor * lColorR) + specFactor * lColorR;
+                float finalG = baseG * (ambient + diffFactor * lColorG) + specFactor * lColorG;
+                float finalB = baseB * (ambient + diffFactor * lColorB) + specFactor * lColorB;
 
-                byte rShaded = (byte)Math.Max(0, Math.Min(255, finalR * 255f));
-                byte gShaded = (byte)Math.Max(0, Math.Min(255, finalG * 255f));
-                byte bShaded = (byte)Math.Max(0, Math.Min(255, finalB * 255f));
+                byte rShaded = (byte)Math.Max(0, Math.Min(255, (int)(finalR * 255f)));
+                byte gShaded = (byte)Math.Max(0, Math.Min(255, (int)(finalG * 255f)));
+                byte bShaded = (byte)Math.Max(0, Math.Min(255, (int)(finalB * 255f)));
 
                 dst[x, y] = ColorBgra.FromBgra(bShaded, gShaded, rShaded, src[x, y].A);
             }
@@ -364,9 +366,9 @@ void Render(Surface dst, Surface src, Rectangle rect)
                     float dot1 = Math.Max(0f, nx * ssb1_x + ny * ssb1_y + nz * ssb1_z);
                     float dot2 = Math.Max(0f, nx * ssb2_x + ny * ssb2_y + nz * ssb2_z);
 
-                    byte rSS = (byte)Math.Max(0, Math.Min(255, dot0 * 255f));
-                    byte gSS = (byte)Math.Max(0, Math.Min(255, dot1 * 255f));
-                    byte bSS = (byte)Math.Max(0, Math.Min(255, dot2 * 255f));
+                    byte rSS = (byte)Math.Max(0, Math.Min(255, (int)(dot0 * 255f)));
+                    byte gSS = (byte)Math.Max(0, Math.Min(255, (int)(dot1 * 255f)));
+                    byte bSS = (byte)Math.Max(0, Math.Min(255, (int)(dot2 * 255f)));
 
                     finalColor = ColorBgra.FromBgra(bSS, gSS, rSS, src[x, y].A);
                 }
@@ -380,17 +382,17 @@ void Render(Surface dst, Surface src, Rectangle rect)
                     float gC = (CustomXColor.G * wX + CustomYColor.G * wY + CustomZColor.G * wZ);
                     float bC = (CustomXColor.B * wX + CustomYColor.B * wY + CustomZColor.B * wZ);
 
-                    byte rByte = (byte)Math.Max(0, Math.Min(255, rC));
-                    byte gByte = (byte)Math.Max(0, Math.Min(255, gC));
-                    byte bByte = (byte)Math.Max(0, Math.Min(255, bC));
+                    byte rByte = (byte)Math.Max(0, Math.Min(255, (int)rC));
+                    byte gByte = (byte)Math.Max(0, Math.Min(255, (int)gC));
+                    byte bByte = (byte)Math.Max(0, Math.Min(255, (int)bC));
 
                     finalColor = ColorBgra.FromBgra(bByte, gByte, rByte, src[x, y].A);
                 }
                 else // Стандартный вывод (OpenGL / DirectX)
                 {
-                    byte rByte = (byte)Math.Max(0, Math.Min(255, (nx * 0.5f + 0.5f) * 255f));
-                    byte gByte = (byte)Math.Max(0, Math.Min(255, (ny * 0.5f + 0.5f) * 255f));
-                    byte bByte = (byte)Math.Max(0, Math.Min(255, (nz * 0.5f + 0.5f) * 255f));
+                    byte rByte = (byte)Math.Max(0, Math.Min(255, (int)((nx * 0.5f + 0.5f) * 255f)));
+                    byte gByte = (byte)Math.Max(0, Math.Min(255, (int)((ny * 0.5f + 0.5f) * 255f)));
+                    byte bByte = (byte)Math.Max(0, Math.Min(255, (int)((nz * 0.5f + 0.5f) * 255f)));
 
                     finalColor = ColorBgra.FromBgra(bByte, gByte, rByte, src[x, y].A);
                 }
