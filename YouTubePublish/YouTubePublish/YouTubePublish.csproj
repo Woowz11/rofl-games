@@ -2,7 +2,7 @@
 
 <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <Version>0.0.9</Version>
+    <Version>0.0.11</Version>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -12,6 +12,7 @@
 <ItemGroup>
     <ProjectReference Include="..\..\..\WoowzLib\WoowzLib\WoowzLib.Window.GLFW\WoowzLib.Window.GLFW.csproj" />
     <ProjectReference Include="..\..\..\WoowzLib\WoowzLib\WoowzLib.Web.WebView2\WoowzLib.Web.WebView2.csproj" />
+    <ProjectReference Include="..\..\..\WoowzLib\WoowzLib\WoowzLib.YouTube\WoowzLib.YouTube.csproj" />
 </ItemGroup>
 
 <Target Name="PreBuild" BeforeTargets="PreBuildEvent">

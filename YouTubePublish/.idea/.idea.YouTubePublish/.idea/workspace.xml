@@ -9,7 +9,7 @@
   <component name="ChangeListManager">
     <list default="true" id="3ae77899-ed68-401c-9e5c-39476c7e827a" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/.idea.YouTubePublish/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.idea.YouTubePublish/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/YouTubePublish/Program.cs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/YouTubePublish/Bootstrap.cs" beforeDir="false" afterPath="$PROJECT_DIR$/YouTubePublish/Bootstrap.cs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/YouTubePublish/YouTubePublish.csproj" beforeDir="false" afterPath="$PROJECT_DIR$/YouTubePublish/YouTubePublish.csproj" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -90,6 +90,9 @@
       <workItem from="1792488363290" duration="112000" />
       <workItem from="1792488614193" duration="60000" />
       <workItem from="1792488754678" duration="7000" />
+      <workItem from="1792489279170" duration="2023000" />
+      <workItem from="1792493489694" duration="280000" />
+      <workItem from="1792494382310" duration="189000" />
     </task>
     <servers />
   </component>
