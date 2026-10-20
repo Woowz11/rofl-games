@@ -16,6 +16,8 @@ public static class Bootstrap{
     [STAThread]
     public static int Main(string[] Args){
         try{
+            WL.Core.Start(Args);
+            
             Web = WLO.Web.WebView2.Create();
             
             WLO.Window.GLFW Window = new WLO.Window.GLFW(new Vector2I(1280, 720), "Uploader", Web);
@@ -83,6 +85,8 @@ function SortVideos(Videos){
             Result = A.SizeBytes - B.SizeBytes;
         }else if(SortKey === "SortDate"){
             Result = A.SortDate - B.SortDate;
+        }else if(SortKey === "IsPublished"){
+            Result = (A.IsPublished === B.IsPublished) ? 0 : (A.IsPublished ? 1 : -1);
         }
 
         return SortAscending ? Result : -Result;
@@ -93,9 +97,10 @@ function SortVideos(Videos){
 
 function UpdateSortButtonsUI(){
     const Buttons = {
-        "Name":      document.getElementById("Btn-SortName"),
-        "SizeBytes": document.getElementById("Btn-SortSize"),
-        "SortDate":  document.getElementById("Btn-SortDate")
+        "Name":        document.getElementById("Btn-SortName"),
+        "SizeBytes":   document.getElementById("Btn-SortSize"),
+        "SortDate":    document.getElementById("Btn-SortDate"),
+        "IsPublished": document.getElementById("Btn-SortStatus")
     };
 
     for(const Key in Buttons){
@@ -125,9 +130,10 @@ function SetSort(Key){
     RenderVideos(SortVideos(LastVideos));
 }
 
-document.getElementById("Btn-SortName").onclick = () => SetSort("Name");
-document.getElementById("Btn-SortSize").onclick = () => SetSort("SizeBytes");
-document.getElementById("Btn-SortDate").onclick = () => SetSort("SortDate");
+document.getElementById("Btn-SortName").onclick   = () => SetSort("Name");
+document.getElementById("Btn-SortSize").onclick   = () => SetSort("SizeBytes");
+document.getElementById("Btn-SortDate").onclick   = () => SetSort("SortDate");
+document.getElementById("Btn-SortStatus").onclick = () => SetSort("IsPublished");
 
 UpdateSortButtonsUI();
 
@@ -629,6 +635,7 @@ html, body{
         <button class="SidebarButton SortButton" id="Btn-SortName" data-label="Имя">Имя</button>
         <button class="SidebarButton SortButton" id="Btn-SortSize" data-label="Размер">Размер</button>
         <button class="SidebarButton SortButton" id="Btn-SortDate" data-label="Дата">Дата</button>
+        <button class="SidebarButton SortButton" id="Btn-SortStatus" data-label="Статус">Статус</button>
     </div>
 
     <div id="Content">
@@ -666,6 +673,8 @@ html, body{
 
             // ----------------------------------------------------------------------
             
+            __LoadConfig();
+            
             YouTube = new YouTube(File.ReadAllText(@"W:\Other\rofl-games\YouTubePublish\client_secret.json"), @"W:\Other\rofl-games\YouTubePublish\UserLogin", "YoutubePublisher");
             
             // ----------------------------------------------------------------------
@@ -682,10 +691,10 @@ html, body{
             Window.Close();
         }catch(Exception e){
             WL.Logger.Fatal("Всё взорвалось...", e);
-            return 1;
+            return WL.Core.Stop(1);
         }
         
-        return 0;
+        return WL.Core.Stop(0);
     }
 
     private static void __OnWebMessage(string Message){
@@ -731,6 +740,65 @@ html, body{
         }
     }
 
+    private const string ConfigFilePath = @"W:\Woowz11\Videos\Записи\YT\!Config.json";
+
+    private sealed class __AppConfig{
+        public int LastID{ get; set; }
+    }
+
+    private static          __AppConfig __Config     = null!;
+    private static readonly object      __ConfigLock = new object();
+
+    private static void __LoadConfig(){
+        if(!File.Exists(ConfigFilePath)){
+            throw new ExceptionWL($"Файл конфигурации не найден!\nПуть: {ConfigFilePath}");
+        }
+
+        string JSON = File.ReadAllText(ConfigFilePath);
+        __Config = JsonSerializer.Deserialize<__AppConfig>(JSON)
+                   ?? throw new ExceptionWL($"Не удалось распарсить файл конфигурации!\nПуть: {ConfigFilePath}");
+    }
+
+    private static void __SaveConfig(){
+        string JSON = JsonSerializer.Serialize(__Config, new JsonSerializerOptions{ WriteIndented = true });
+        File.WriteAllText(ConfigFilePath, JSON);
+    }
+
+    private static int __GetNextID(){
+        lock(__ConfigLock){
+            __Config.LastID++;
+            __SaveConfig();
+            return __Config.LastID;
+        }
+    }
+
+    private const string ResultFilePath = @"W:\Woowz11\Videos\Записи\YT\!Result.js";
+    private static readonly object __ResultFileLock = new object();
+
+    private static string __FormatDuration(TimeSpan Duration){
+        return Duration.Hours > 0
+            ? Duration.ToString(@"hh\:mm\:ss")
+            : Duration.ToString(@"mm\:ss");
+    }
+
+    private static void __AppendResultEntry(int ID, string CreateDate, string VideoID, TimeSpan Duration, bool IsShorts){
+        string PublishDate    = DateTime.Now.ToString("yyyy.MM.dd");
+        string DurationString = __FormatDuration(Duration);
+        string Tags           = IsShorts ? "T_Shorts, T_WIP" : "T_WIP";
+
+        string Entry =
+            $"\t[{ID}, \"~\", \"{CreateDate}\", \"{VideoID}\", \"{PublishDate}\", \"{DurationString}\", P_Hide,\n" +
+            $"\t[{Tags}],\n" +
+            "\t\"Опубликовано YouTubePublisher\"],\n\n";
+
+        lock(__ResultFileLock){
+            string Existing = File.Exists(ResultFilePath) ? File.ReadAllText(ResultFilePath) : "";
+            File.WriteAllText(ResultFilePath, Entry + Existing);
+        }
+    }
+
+    // ----------------------------------------------------------------------
+
     private const           string   VideosFolder    = @"W:\Woowz11\Videos\Записи\YT";
     private const           string   PublishedFolder = @"W:\Woowz11\Videos\Записи\YT\Published";
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".mkv", ".avi", ".wmv", ".flv", ".webm"];
@@ -768,18 +836,7 @@ html, body{
             if(!VideoExtensions.Contains(Extension)){ continue; }
 
             FileInfo FI = new FileInfo(Path);
-
-            ParsedDate? Parsed = __TryParseDateFromName(FI.Name);
-            bool HasDate = Parsed != null;
-
-            DateTime SortDateTime = Parsed?.Date ?? FI.CreationTime;
-
-            string DateString = Parsed switch{
-                { HasSeconds: true } P => P.Date.ToString("yyyy.MM.dd HH:mm:ss"),
-                { HasTime: true }    P => P.Date.ToString("yyyy.MM.dd HH:mm"),
-                { } P                  => P.Date.ToString("yyyy.MM.dd"),
-                null                   => FI.CreationTime.ToString("yyyy.MM.dd HH:mm:ss")
-            };
+            (string DateString, bool HasDate, DateTime SortDateTime) = __GetDateInfo(FI);
             
             Result.Add(new VideoFileInfo(
                 Name: FI.Name,
@@ -793,6 +850,21 @@ html, body{
         
         return Result;
     }
+
+    private static (string DateString, bool HasDate, DateTime SortDateTime) __GetDateInfo(FileInfo FI){
+        ParsedDate? Parsed = __TryParseDateFromName(FI.Name);
+        bool HasDate = Parsed != null;
+        DateTime SortDateTime = Parsed?.Date ?? FI.CreationTime;
+
+        string DateString = Parsed switch{
+            { HasSeconds: true } P => P.Date.ToString("yyyy.MM.dd HH:mm:ss"),
+            { HasTime: true }    P => P.Date.ToString("yyyy.MM.dd HH:mm"),
+            { } P                  => P.Date.ToString("yyyy.MM.dd"),
+            null                   => FI.CreationTime.ToString("yyyy.MM.dd HH:mm:ss")
+        };
+
+        return (DateString, HasDate, SortDateTime);
+    }
     
     private static void __StartPublish(string Name){
         Task.Run(() => {
@@ -804,10 +876,20 @@ html, body{
                     return;
                 }
 
+                FileInfo FI = new FileInfo(Path);
+                (string CreateDate, bool _, DateTime _) = __GetDateInfo(FI);
+
+                VideoInfo Info     = __TryGetVideoInfo(Path);
+                bool      IsShorts = __IsShorts(Info);
+                
+                int    NewID       = __GetNextID();
+                string Title       = $"[{NewID}]";
+                string Description = $"Опубликовано YouTubePublisher\n\nДата: {DateTime.Now:yyyy.MM.dd HH:mm:ss}\nФайл: {FI.Name}\nРазмер: {FI.Length} байт";
+
                 YouTubeOperationResult<YouTubeVideo> Result = YouTube.UploadVideo(
                     VideoPath: Path,
-                    Title: System.IO.Path.GetFileNameWithoutExtension(Name),
-                    Description: "",
+                    Title: Title,
+                    Description: Description,
                     Privacy: YouTubePrivacy.Unpublic,
                     OnProgress: (Sent, Total) => __EnqueueProgress(Name, Sent, Total)
                 );
@@ -822,12 +904,76 @@ html, body{
                 string DestinationPath = System.IO.Path.Combine(PublishedFolder, Name);
                 File.Move(Path, DestinationPath, overwrite: true);
 
+                try{
+                    string   VideoID  = Result.Value!.ID;
+                    TimeSpan Duration = Info.Duration ?? TimeSpan.Zero;
+
+                    __AppendResultEntry(NewID, CreateDate, VideoID, Duration, IsShorts);
+                }catch(Exception e){
+                    WL.Logger.Error($"Не удалось дописать строку в Result.txt для видео [{Name}]!", e);
+                }
+
                 __EnqueuePublishComplete(Name);
             }catch(Exception e){
                 WL.Logger.Error($"Исключение при публикации видео [{Name}]!", e);
                 __EnqueuePublishFailed(Name, e.Message);
             }
         });
+    }
+    
+    private readonly record struct VideoInfo(TimeSpan? Duration, int? Width, int? Height);
+
+    private static VideoInfo __TryGetVideoInfo(string Path){
+        try{
+            ProcessStartInfo PSI = new ProcessStartInfo{
+                FileName               = "ffprobe",
+                Arguments              = $"-v quiet -print_format json -show_format -show_streams \"{Path}\"",
+                RedirectStandardOutput = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true
+            };
+
+            using Process? Proc = Process.Start(PSI);
+            if(Proc == null){ throw new ExceptionWL("Не удалось запустить ffprobe!"); }
+
+            string Output = Proc.StandardOutput.ReadToEnd();
+            Proc.WaitForExit();
+
+            using JsonDocument Doc = JsonDocument.Parse(Output);
+
+            TimeSpan? Duration = null;
+            if(Doc.RootElement.TryGetProperty("format", out JsonElement Format) &&
+               Format.TryGetProperty("duration", out JsonElement DurationProp) &&
+               double.TryParse(DurationProp.GetString(), out double Seconds))
+            {
+                Duration = TimeSpan.FromSeconds(Seconds);
+            }
+
+            int? Width  = null;
+            int? Height = null;
+
+            if(Doc.RootElement.TryGetProperty("streams", out JsonElement Streams)){
+                foreach(JsonElement Stream in Streams.EnumerateArray()){
+                    if(!Stream.TryGetProperty("codec_type", out JsonElement CodecType) || CodecType.GetString() != "video"){
+                        continue;
+                    }
+
+                    if(Stream.TryGetProperty("width", out JsonElement W)){ Width = W.GetInt32(); }
+                    if(Stream.TryGetProperty("height", out JsonElement H)){ Height = H.GetInt32(); }
+                    break;
+                }
+            }
+
+            return new VideoInfo(Duration, Width, Height);
+        }catch(Exception e){
+            WL.Logger.Warn($"Не удалось определить параметры видео через ffprobe!\nФайл: {Path}", e);
+            return new VideoInfo(null, null, null);
+        }
+    }
+
+    private static bool __IsShorts(VideoInfo Info){
+        if(Info.Duration == null || Info.Width == null || Info.Height == null){ return false; }
+        return Info.Height >= Info.Width && Info.Duration <= TimeSpan.FromMinutes(3);
     }
 
     private static void __EnqueueProgress(string Name, long Sent, long Total){
