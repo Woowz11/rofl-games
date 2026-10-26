@@ -221,38 +221,50 @@ public class GitHubClient{
     }
 
     private async Task<JsonDocument> __GetJson(string Url, CancellationToken Cancel){
-        OnDebugLog?.Invoke($"→ GET {Url}");
-        var Timer = Stopwatch.StartNew();
+        const int MaxAttempts = 3;
 
-        var RequestTask = __Http.GetAsync(Url, Cancel);
+        for(var Attempt = 1; Attempt <= MaxAttempts; Attempt++){
+            OnDebugLog?.Invoke($"→ GET {Url}" + (Attempt > 1 ? $" (попытка {Attempt}/{MaxAttempts})" : ""));
+            var Timer = Stopwatch.StartNew();
 
-        while(true){
-            var DelayTask     = Task.Delay(5000, CancellationToken.None);
-            var CompletedTask = await Task.WhenAny(RequestTask, DelayTask);
+            var RequestTask = __Http.GetAsync(Url, Cancel);
 
-            if(CompletedTask == RequestTask) break;
+            while(true){
+                var DelayTask     = Task.Delay(5000, CancellationToken.None);
+                var CompletedTask = await Task.WhenAny(RequestTask, DelayTask);
 
-            Cancel.ThrowIfCancellationRequested();
-            OnDebugLog?.Invoke($"...всё ещё жду ответ от {Url} ({Timer.Elapsed.TotalSeconds:F0} сек — если долго, проверьте интернет/VPN)");
-        }
+                if(CompletedTask == RequestTask) break;
 
-        using var Response = await RequestTask;
-        Timer.Stop();
+                Cancel.ThrowIfCancellationRequested();
+                OnDebugLog?.Invoke($"...всё ещё жду ответ от {Url} ({Timer.Elapsed.TotalSeconds:F0} сек — если долго, проверьте интернет/VPN)");
+            }
 
-        if(Response.Headers.TryGetValues("X-RateLimit-Remaining", out var RemVals) && int.TryParse(RemVals.FirstOrDefault(), out var Rem)){
-            RateLimitRemaining = Rem;
-        }
-        if(Response.Headers.TryGetValues("X-RateLimit-Limit", out var LimVals) && int.TryParse(LimVals.FirstOrDefault(), out var Lim)){
-            RateLimitLimit = Lim;
-        }
-        if(Response.Headers.TryGetValues("X-RateLimit-Reset", out var ResetVals) && long.TryParse(ResetVals.FirstOrDefault(), out var Reset)){
-            RateLimitReset = Reset;
-        }
+            using var Response = await RequestTask;
+            Timer.Stop();
 
-        var Text = await Response.Content.ReadAsStringAsync(Cancel);
-        OnDebugLog?.Invoke($"← {(int)Response.StatusCode} {Response.ReasonPhrase} за {Timer.ElapsedMilliseconds} мс");
+            if(Response.Headers.TryGetValues("X-RateLimit-Remaining", out var RemVals) && int.TryParse(RemVals.FirstOrDefault(), out var Rem)){
+                RateLimitRemaining = Rem;
+            }
+            if(Response.Headers.TryGetValues("X-RateLimit-Limit", out var LimVals) && int.TryParse(LimVals.FirstOrDefault(), out var Lim)){
+                RateLimitLimit = Lim;
+            }
+            if(Response.Headers.TryGetValues("X-RateLimit-Reset", out var ResetVals) && long.TryParse(ResetVals.FirstOrDefault(), out var Reset)){
+                RateLimitReset = Reset;
+            }
 
-        if(!Response.IsSuccessStatusCode){
+            var Text = await Response.Content.ReadAsStringAsync(Cancel);
+            OnDebugLog?.Invoke($"← {(int)Response.StatusCode} {Response.ReasonPhrase} за {Timer.ElapsedMilliseconds} мс");
+
+            if(Response.IsSuccessStatusCode) return JsonDocument.Parse(Text);
+
+            var IsServerError = (int)Response.StatusCode >= 500;
+            if(IsServerError && Attempt < MaxAttempts){
+                var DelaySec = Attempt * 3;
+                OnDebugLog?.Invoke($"Сервер вернул {(int)Response.StatusCode} — похоже на временный сбой, повторю через {DelaySec} сек...");
+                await Task.Delay(DelaySec * 1000, Cancel);
+                continue;
+            }
+
             var Hint = Response.StatusCode switch{
                 HttpStatusCode.NotFound     => " (проверьте правильность имени owner/repo и ветки)",
                 HttpStatusCode.Unauthorized => " (проверьте корректность токена)",
@@ -262,7 +274,7 @@ public class GitHubClient{
             throw new Exception($"GitHub API вернул {(int)Response.StatusCode} {Response.ReasonPhrase}{Hint}. Ответ: {Text}");
         }
 
-        return JsonDocument.Parse(Text);
+        throw new Exception("Не удалось выполнить запрос после нескольких попыток.");
     }
 
     public async Task<string> GetDefaultBranchAsync(string Owner, string Repo, CancellationToken Cancel){
@@ -288,8 +300,9 @@ public class GitHubClient{
     }
 
     public async Task<GitHubTreeResult> GetTreeAsync(string Owner, string Repo, string Sha, bool Recursive, CancellationToken Cancel){
+        var Url = $"https://api.github.com/repos/{Owner}/{Repo}/git/trees/{Sha}" + (Recursive ? "?recursive=1" : "");
+
         try{
-            var Url = $"https://api.github.com/repos/{Owner}/{Repo}/git/trees/{Sha}" + (Recursive ? "?recursive=1" : "");
             using var Doc = await __GetJson(Url, Cancel);
 
             var Entries = new List<GitHubTreeEntry>();
@@ -306,6 +319,9 @@ public class GitHubClient{
             return new GitHubTreeResult(Entries, Truncated);
         }catch(OperationCanceledException){
             throw;
+        }catch(Exception E) when(Recursive && Regex.IsMatch(E.Message, @"вернул 5\d\d\b")){
+            OnDebugLog?.Invoke($"Рекурсивный запрос дерева (sha {Sha[..Math.Min(7, Sha.Length)]}) провалился на стороне GitHub ({E.Message}) — поддерево слишком большое для recursive=1, буду обходить его по частям.");
+            return new GitHubTreeResult(new List<GitHubTreeEntry>(), true);
         }catch(Exception E){
             throw new Exception($"Не удалось получить дерево файлов (sha {Sha[..Math.Min(7, Sha.Length)]}) для {Owner}/{Repo}: {E.Message}", E);
         }
