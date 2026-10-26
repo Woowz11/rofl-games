@@ -18,6 +18,8 @@ public static class Bootstrap{
             
             Web.Navigate("https://woowz11.github.io/woowzsite/quare.html");
 
+            test.GO_TEST_SQL();
+            
             while(!Window.IsClosed){
                 Window.PollEvents();
                 Window.PollEvents2();
