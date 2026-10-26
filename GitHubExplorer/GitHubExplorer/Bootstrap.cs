@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -52,6 +53,12 @@ public class ExplorerChildRow{
     public int    IsFolder  { get; set; }
     public long?  TotalSize { get; set; }
     public int    FileCount { get; set; }
+}
+
+public class SearchResultRow{
+    public string Path { get; set; } = "";
+    public long?  Size { get; set; }
+    public byte   Type { get; set; }
 }
 
 internal static class NativeFileDialog{
@@ -121,6 +128,8 @@ public static class Bootstrap{
 
     private static Database? __DB;
     private static string?   __CurrentDbPath;
+
+    private const int SearchResultLimit = 500;
 
     [STAThread]
     public static int Main(string[] Args){
@@ -192,6 +201,18 @@ public static class Bootstrap{
                     __HandleNavigate(Path);
                     break;
                 }
+
+                case "OpenExternal":{
+                    var Url = Data.GetProperty("Url").GetString() ?? "";
+                    __HandleOpenExternal(Url);
+                    break;
+                }
+
+                case "SearchRepo":{
+                    var Term = Data.GetProperty("Term").GetString() ?? "";
+                    __HandleSearchRepo(Term);
+                    break;
+                }
             }
         }catch(Exception E){
             __SendError("Ошибка обработки сообщения от интерфейса", E);
@@ -212,6 +233,9 @@ public static class Bootstrap{
 
             var PendingCount = __DB.Table<PendingFolderRow>().All().Count();
 
+            // Сначала сообщаем UI, что открывается новый репозиторий — клиент сбросит
+            // локальное состояние (путь, выделение, очередь, исключения, поиск),
+            // чтобы не унаследовать данные от предыдущей базы.
             __Send("DatabaseOpened", new{
                 Path,
                 Repo.Owner,
@@ -272,6 +296,55 @@ public static class Bootstrap{
         }
     }
 
+    private static void __HandleSearchRepo(string Term){
+        if(__DB == null) return;
+
+        Term = Term.Trim();
+        if(Term.Length == 0){
+            __Send("SearchResults", new{ Term, Results = Array.Empty<object>(), Truncated = false });
+            return;
+        }
+
+        try{
+            var Prefix  = __DB.ParameterPrefix;
+            var Escaped = Term.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+            // Простой поиск по вхождению в путь по всей базе (не только текущая папка).
+            // Параметры и фильтры появятся позже — сейчас это базовый полнотекстовый поиск по пути.
+            var Sql = $"""
+                SELECT Path, Size, Type
+                FROM FileRow
+                WHERE Path LIKE {Prefix}Pattern ESCAPE '\'
+                ORDER BY Path COLLATE NOCASE ASC
+                LIMIT {Prefix}Limit
+                """;
+
+            var Rows = __DB.Query<SearchResultRow>(Sql, new{ Pattern = "%" + Escaped + "%", Limit = SearchResultLimit + 1 }).ToList();
+
+            var Truncated = Rows.Count > SearchResultLimit;
+            var Results   = Rows.Take(SearchResultLimit).Select(R => new{ R.Path, R.Size, R.Type });
+
+            __Send("SearchResults", new{ Term, Results, Truncated });
+        }catch(Exception E){
+            __SendError("Ошибка поиска по репозиторию", E);
+        }
+    }
+
+    private static void __HandleOpenExternal(string Url){
+        if(string.IsNullOrWhiteSpace(Url)) return;
+
+        try{
+            if(!Url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+               !Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)){
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo(Url){ UseShellExecute = true });
+        }catch(Exception E){
+            __SendError("Не удалось открыть ссылку", E);
+        }
+    }
+
     /* language=html */
     private static string __BuildHtml() => """
     <!DOCTYPE html>
@@ -280,6 +353,14 @@ public static class Bootstrap{
     <meta charset="utf-8" />
     <style>
         *{ box-sizing: border-box; }
+
+        /* Тёмные полосы прокрутки — по умолчанию WebView2 (Chromium) рисует их светлыми */
+        *::-webkit-scrollbar{ width: 10px; height: 10px; }
+        *::-webkit-scrollbar-track{ background: #1e1e1e; }
+        *::-webkit-scrollbar-thumb{ background: #4a4a4a; border-radius: 5px; border: 2px solid #1e1e1e; }
+        *::-webkit-scrollbar-thumb:hover{ background: #5a5a5a; }
+        *::-webkit-scrollbar-corner{ background: #1e1e1e; }
+
         body{
             margin: 0;
             font-family: Segoe UI, sans-serif;
@@ -319,6 +400,33 @@ public static class Bootstrap{
             font-size: 13px;
             width: 100%;
         }
+
+        /* Тёмный ползунок (range-слайдер размера тайлов) */
+        input[type="range"]{
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            padding: 0;
+            height: 16px;
+        }
+        input[type="range"]::-webkit-slider-runnable-track{
+            height: 4px;
+            background: #3c3c3c;
+            border-radius: 2px;
+        }
+        input[type="range"]::-webkit-slider-thumb{
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            margin-top: -5px;
+            border-radius: 50%;
+            background: #0e639c;
+            border: 2px solid #1e1e1e;
+            cursor: pointer;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover{ background: #1177bb; }
+
         .FieldRow{ display: flex; flex-direction: column; gap: 6px; }
         .InlineButtons{ display: flex; gap: 6px; }
         button{
@@ -329,6 +437,7 @@ public static class Bootstrap{
             border-radius: 4px;
             cursor: pointer;
             font-size: 13px;
+            white-space: nowrap;
         }
         button:hover{ background: #1177bb; }
         button:disabled{ background: #444; cursor: not-allowed; opacity: .45; pointer-events: none; }
@@ -339,9 +448,11 @@ public static class Bootstrap{
 
         #RepoInfo{ font-size: 12px; color: #aaa; line-height: 1.7; flex: 0 0 auto; }
         #RepoInfo b{ color: #ddd; }
+        #RepoInfo a{ color: #4fc1ff; text-decoration: none; }
+        #RepoInfo a:hover{ text-decoration: underline; }
         #RepoWarning{ color: #e0c33e; margin-top: 4px; }
 
-        #DownloadQueuePanel{ flex: 1; display: flex; flex-direction: column; min-height: 120px; gap: 6px; }
+        #DownloadQueuePanel{ flex: 1; display: flex; flex-direction: column; min-height: 120px; gap: 8px; overflow: hidden; }
         #DownloadDropZone{
             border: 2px dashed #444;
             border-radius: 4px;
@@ -352,7 +463,11 @@ public static class Bootstrap{
             transition: background .15s, border-color .15s;
         }
         #DownloadDropZone.DragOver{ background: #1b3a52; border-color: #0e639c; color: #ccc; }
-        #DownloadQueueList{ flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+
+        /* Список очереди не растягивается на всю высоту сайдбара — иначе
+           кнопки управления очередью "утекали" в самый низ. */
+        #DownloadQueueList{ overflow-y: auto; display: flex; flex-direction: column; gap: 4px; max-height: 280px; }
+
         .QueueItem{
             display: flex;
             align-items: center;
@@ -366,6 +481,9 @@ public static class Bootstrap{
         }
         .QueueItem.Ignored{ border-color: #6b5a1f; background: #2a2416; }
         .QueueItem.Ignored .QueueItemName{ color: #d8c37a; }
+        .QueueItem.Excluded{ border-color: #823030; background: #2a1616; }
+        .QueueItem.Excluded .QueueItemName{ color: #ff9b9b; }
+        .QueueSubItem{ margin-left: 16px; }
         .QueueItem .QueueItemName{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .QueueItem button{ background: transparent; color: #999; padding: 0 4px; font-size: 14px; line-height: 1; }
         .QueueItem button:hover{ color: #e04f3e; background: transparent; }
@@ -379,6 +497,8 @@ public static class Bootstrap{
         #Breadcrumb span:hover{ text-decoration: underline; }
         #Breadcrumb .Sep{ color: #666; cursor: default; }
         #SearchInput{ width: 240px; }
+        #GlobalSearchBtn{ background: #3a3a3a; }
+        #GlobalSearchBtn:hover{ background: #4a4a4a; }
 
         #ListArea{
             flex: 1;
@@ -399,17 +519,27 @@ public static class Bootstrap{
             top: 0;
             background: #1e1e1e;
         }
+        thead th.SortableHeader{ cursor: pointer; user-select: none; }
+        thead th.SortableHeader:hover{ color: #ccc; }
         tbody tr:hover{ background: #2a2d2e; }
         tbody tr.Queued{ background: #173a1a; }
         tbody tr.Queued:hover{ background: #1f4a23; }
+        tbody tr.Excluded{ background: #3a1414; color: #ff9b9b; }
+        tbody tr.Excluded:hover{ background: #4a1a1a; }
         tbody tr.Selected{ background: #0e639c4d !important; }
         tbody td{ padding: 5px 14px; border-bottom: 1px solid #2a2a2a; white-space: nowrap; }
+        tbody td span[title]{ cursor: help; border-bottom: 1px dotted #666; }
         tbody tr{ cursor: pointer; }
         #Placeholder{ margin: auto; color: #666; padding: 40px; text-align: center; }
 
+        /* grid-auto-rows/align-items: без этого тайлы растягивались по высоте
+           на всю строку грида (по умолчанию align-items: stretch) */
         #TileGrid{
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(var(--TileSize), 1fr));
+            grid-auto-rows: max-content;
+            align-content: start;
+            align-items: start;
             gap: 10px;
             padding: 10px;
             min-height: 100%;
@@ -418,20 +548,27 @@ public static class Bootstrap{
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 4px;
+            gap: 2px;
             padding: 8px;
             border-radius: 6px;
-            cursor: pointer;
             text-align: center;
         }
+        .Tile.IsFolder{ cursor: pointer; }
+        .Tile:not(.IsFolder){ cursor: default; }
         .Tile:hover{ background: #2a2d2e; }
         .Tile.Queued{ background: #173a1a; outline: 1px solid #2d8a3e; }
+        .Tile.Excluded{ background: #3a1414; outline: 1px solid #a33838; }
+        .Tile.Excluded .TileName{ color: #ff9b9b; }
         .Tile.Selected{ background: #0e639c4d !important; outline: 1px solid #0e639c; }
-        .Tile .TileIcon{ font-size: calc(var(--TileSize) * 0.35); line-height: 1; }
-        .Tile .TileName{ font-size: 11px; word-break: break-word; max-width: 100%; margin-top: 6px; }
+        .Tile .TileIcon{ font-size: calc(var(--TileSize) * 0.32); line-height: 1; }
+        .Tile .TileName{ font-size: 11px; word-break: break-word; max-width: 100%; margin-top: 6px; color: #ccc; }
+        .Tile.IsFolder .TileName{ font-weight: 700; color: #fff; }
+        .Tile .TileMeta{ font-size: 10px; color: #888; margin-top: 2px; white-space: nowrap; }
+        .Tile .TileMeta span[title]{ cursor: help; border-bottom: 1px dotted #555; }
 
         #BottomBar{ display: flex; align-items: center; justify-content: space-between; gap: 14px; }
         #StatusBar{ font-size: 12px; color: #999; }
+        #StatusBar span[title]{ cursor: help; border-bottom: 1px dotted #666; }
         #ViewControls{ display: flex; align-items: center; gap: 14px; }
         .ViewToggleBtn{ background: #3a3a3a; padding: 6px 10px; font-size: 12px; }
         .ViewToggleBtn.Active{ background: #0e639c; }
@@ -447,6 +584,32 @@ public static class Bootstrap{
             padding: 7px 12px;
             background: #103049;
         }
+        #SelectionInfo span[title]{ cursor: help; border-bottom: 1px dotted #6ab2e0; }
+
+        /* Панель поиска по всему репозиторию заменяет рабочую область */
+        #GlobalSearchView{
+            display: none;
+            flex: 1;
+            flex-direction: column;
+            gap: 10px;
+            overflow: hidden;
+        }
+        #Content.GlobalSearchActive #ListArea,
+        #Content.GlobalSearchActive #SelectionInfo,
+        #Content.GlobalSearchActive #BottomBar,
+        #Content.GlobalSearchActive #BackBtn,
+        #Content.GlobalSearchActive #Breadcrumb,
+        #Content.GlobalSearchActive #SearchInput,
+        #Content.GlobalSearchActive #GlobalSearchBtn{ display: none; }
+        #Content.GlobalSearchActive #GlobalSearchView{ display: flex; }
+
+        #GlobalSearchHeader{ display: flex; align-items: center; gap: 10px; }
+        #GlobalSearchHeader strong{ color: #ddd; font-size: 14px; white-space: nowrap; }
+        #GlobalSearchInput{ flex: 1; }
+        #GlobalSearchHint{ font-size: 12px; color: #777; }
+        #GlobalSearchResultsArea{ flex: 1; overflow-y: auto; border: 1px solid #333; border-radius: 4px; }
+        #GlobalSearchPlaceholder{ margin: auto; color: #666; padding: 40px; text-align: center; }
+        #GlobalSearchSummary{ font-size: 12px; color: #999; }
 
         #ContextMenu{
             position: fixed;
@@ -455,7 +618,7 @@ public static class Bootstrap{
             border: 1px solid #444;
             border-radius: 4px;
             padding: 4px;
-            min-width: 200px;
+            min-width: 220px;
             box-shadow: 0 4px 14px rgba(0,0,0,.4);
             z-index: 1000;
         }
@@ -468,6 +631,27 @@ public static class Bootstrap{
         }
         #ContextMenu .MenuItem:hover{ background: #0e639c; }
         #ContextMenu .MenuSep{ height: 1px; background: #444; margin: 4px 0; }
+
+        #Toast{
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #2b2b2b;
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            box-shadow: 0 4px 14px rgba(0,0,0,.45);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity .2s ease, transform .2s ease;
+            pointer-events: none;
+            z-index: 2000;
+            border: 1px solid #444;
+            max-width: 360px;
+            word-break: break-all;
+        }
+        #Toast.Show{ opacity: 1; transform: translateY(0); }
     </style>
     </head>
     <body>
@@ -486,10 +670,10 @@ public static class Bootstrap{
             <label>Очередь на скачивание</label>
             <div id="DownloadDropZone">Перетащите сюда выделенные файлы или папки</div>
             <div id="DownloadQueueList"></div>
-            <div id="DownloadQueueSummary"></div>
             <div class="InlineButtons">
                 <button id="ClearQueueBtn" class="Danger">🗑 Удалить всё</button>
             </div>
+            <div id="DownloadQueueSummary"></div>
         </div>
     </div>
 
@@ -498,6 +682,7 @@ public static class Bootstrap{
             <button id="BackBtn" disabled>←</button>
             <div id="Breadcrumb"></div>
             <input id="SearchInput" type="text" placeholder="🔍 Поиск в этой папке..." />
+            <button id="GlobalSearchBtn">🔎 Поиск по репозиторию</button>
         </div>
         <div id="ListArea">
             <div id="Placeholder">Откройте файл базы данных, чтобы увидеть содержимое репозитория</div>
@@ -511,9 +696,24 @@ public static class Bootstrap{
                 <label id="TileSizeLabel">Размер тайлов <input type="range" id="TileSizeInput" min="60" max="220" value="100" /></label>
             </div>
         </div>
+
+        <div id="GlobalSearchView">
+            <div id="GlobalSearchHeader">
+                <button id="CloseGlobalSearchBtn" class="Secondary">← Назад к папкам</button>
+                <strong>Поиск по всему репозиторию</strong>
+                <input id="GlobalSearchInput" type="text" placeholder="Имя файла или часть пути..." />
+                <button id="RunGlobalSearchBtn">Искать</button>
+            </div>
+            <div id="GlobalSearchHint">Дополнительные параметры поиска и фильтры появятся позже. Сейчас можно сортировать результаты по пути, типу и размеру — клик по заголовку столбца.</div>
+            <div id="GlobalSearchResultsArea">
+                <div id="GlobalSearchPlaceholder">Введите запрос и нажмите «Искать»</div>
+            </div>
+            <div id="GlobalSearchSummary"></div>
+        </div>
     </div>
 
     <div id="ContextMenu"></div>
+    <div id="Toast"></div>
 
     <script>
     /* language=js */
@@ -524,6 +724,17 @@ public static class Bootstrap{
         var LastClickedIndex = null;
         var ViewMode         = "list";
         var DownloadQueue    = {};
+        var ExcludedPaths    = {}; // Path -> { IsFolder, Size, FileCount } — вручную исключённые из уже добавленных папок элементы
+        var ToastTimeoutId   = null;
+
+        var RepoTotalSize  = 0;
+        var RepoTotalFiles = 0;
+
+        var GlobalSearchResults   = [];
+        var GlobalSearchTruncated = false;
+        var GlobalSearchLastTerm  = "";
+        var GlobalSearchSortField = "Path";
+        var GlobalSearchSortDir   = 1; // 1 = по возрастанию, -1 = по убыванию
 
         function FormatSize(Bytes){
             if(Bytes == null) return "—";
@@ -533,6 +744,84 @@ public static class Bootstrap{
             var UnitIndex = -1;
             do{ Value /= 1024; UnitIndex++; }while(Value >= 1024 && UnitIndex < Units.length - 1);
             return Value.toFixed(2) + " " + Units[UnitIndex];
+        }
+
+        function FormatBytesExact(Bytes){
+            if(Bytes == null) return "размер неизвестен";
+            try{
+                return Bytes.toLocaleString("ru-RU") + " байт";
+            }catch(E){
+                return Bytes + " байт";
+            }
+        }
+
+        // Человекочитаемый размер + точный размер в байтах во всплывающей подсказке
+        function SizeHtml(Bytes){
+            return '<span title="' + FormatBytesExact(Bytes) + '">' + FormatSize(Bytes) + '</span>';
+        }
+
+        // Проценты от общего веса репозитория — показываются рядом с суммарным размером выделения
+        function FormatPercentOfRepo(SelectedSize){
+            if(!RepoTotalSize || RepoTotalSize <= 0) return "";
+            var Percent = (SelectedSize / RepoTotalSize) * 100;
+            if(Percent <= 0) return "";
+            var Text = Percent < 0.1 ? "<0.1" : (Percent >= 10 ? Percent.toFixed(0) : Percent.toFixed(1));
+            return ' <span title="' + FormatBytesExact(SelectedSize) + ' из ' + FormatBytesExact(RepoTotalSize) + '">(' + Text + '% от репозитория)</span>';
+        }
+
+        function ShowToast(Message){
+            var El = document.getElementById("Toast");
+            El.textContent = Message;
+            El.classList.add("Show");
+            if(ToastTimeoutId) clearTimeout(ToastTimeoutId);
+            ToastTimeoutId = setTimeout(function(){ El.classList.remove("Show"); }, 2500);
+        }
+
+        // Отдельная функция копирования. Важно: в кастомном WebView2-окружении
+        // navigator.clipboard.writeText() может ни разу не вызвать ни then, ни catch
+        // (промис зависает из-за отсутствия обычной модели разрешений браузера).
+        // Поэтому ставим таймаут-страховку с переключением на execCommand('copy').
+        function CopyTextToClipboard(Text, OnDone){
+            var Done = false;
+
+            function Finish(Success){
+                if(Done) return;
+                Done = true;
+                OnDone(Success);
+            }
+
+            function FallbackCopy(){
+                var Success = false;
+                try{
+                    var TextArea = document.createElement("textarea");
+                    TextArea.value = Text;
+                    TextArea.style.position = "fixed";
+                    TextArea.style.top = "-9999px";
+                    TextArea.style.left = "-9999px";
+                    document.body.appendChild(TextArea);
+                    TextArea.focus();
+                    TextArea.select();
+                    Success = document.execCommand("copy");
+                    document.body.removeChild(TextArea);
+                }catch(E){
+                    Success = false;
+                }
+                Finish(Success);
+            }
+
+            try{
+                if(navigator.clipboard && navigator.clipboard.writeText){
+                    var TimeoutId = setTimeout(FallbackCopy, 400);
+                    navigator.clipboard.writeText(Text).then(
+                        function(){ clearTimeout(TimeoutId); Finish(true); },
+                        function(){ clearTimeout(TimeoutId); FallbackCopy(); }
+                    );
+                }else{
+                    FallbackCopy();
+                }
+            }catch(E){
+                FallbackCopy();
+            }
         }
 
         function Send(Type, Data){
@@ -550,14 +839,34 @@ public static class Bootstrap{
             return Idx === -1 ? "" : Trimmed.substring(0, Idx + 1);
         }
 
-        function GetQueueStatus(FullPath){
-            if(DownloadQueue[FullPath]) return "direct";
+        // Покрыт ли путь какой-то добавленной в очередь папкой-предком
+        function IsCoveredByQueue(FullPath){
             var Keys = Object.keys(DownloadQueue);
             for(var I = 0; I < Keys.length; I++){
                 var Key   = Keys[I];
                 var Entry = DownloadQueue[Key];
-                if(Entry.IsFolder && Key !== FullPath && FullPath.indexOf(Key) === 0) return "covered";
+                if(Entry.IsFolder && Key !== FullPath && FullPath.indexOf(Key) === 0) return true;
             }
+            return false;
+        }
+
+        // Исключён ли путь напрямую или через исключённую папку-предка
+        function IsPathExcluded(FullPath){
+            if(ExcludedPaths[FullPath]) return true;
+            var Keys = Object.keys(ExcludedPaths);
+            for(var I = 0; I < Keys.length; I++){
+                var Key   = Keys[I];
+                var Entry = ExcludedPaths[Key];
+                if(Entry.IsFolder && Key !== FullPath && FullPath.indexOf(Key) === 0) return true;
+            }
+            return false;
+        }
+
+        // Итоговый статус элемента для подсветки в списке/тайлах
+        function GetEffectiveStatus(FullPath){
+            if(IsPathExcluded(FullPath)) return "excluded";
+            if(DownloadQueue[FullPath]) return "direct";
+            if(IsCoveredByQueue(FullPath)) return "covered";
             return "none";
         }
 
@@ -570,6 +879,41 @@ public static class Bootstrap{
                 if(Entry.IsFolder && Path.indexOf(Key) === 0) return true;
             }
             return false;
+        }
+
+        // Исключение, перекрытое другим (вложенным выше) исключением — чтобы не считать дважды
+        function IsExcludeEntryIgnored(Path){
+            var Keys = Object.keys(ExcludedPaths);
+            for(var I = 0; I < Keys.length; I++){
+                var Key = Keys[I];
+                if(Key === Path) continue;
+                var Entry = ExcludedPaths[Key];
+                if(Entry.IsFolder && Path.indexOf(Key) === 0) return true;
+            }
+            return false;
+        }
+
+        // Суммарные размер/кол-во файлов, исключённых внутри указанной папки очереди
+        function GetExcludedTotalsUnder(FolderPath){
+            var Size = 0, Files = 0;
+            var Keys = Object.keys(ExcludedPaths);
+            for(var I = 0; I < Keys.length; I++){
+                var Key = Keys[I];
+                if(Key === FolderPath || Key.indexOf(FolderPath) !== 0) continue;
+                if(IsExcludeEntryIgnored(Key)) continue;
+                var Entry = ExcludedPaths[Key];
+                Files += (Entry.IsFolder ? (Entry.FileCount || 0) : 1);
+                Size  += (Entry.Size || 0);
+            }
+            return { Size: Size, Files: Files };
+        }
+
+        // Удаляет исключения, которые больше не находятся внутри ни одной добавленной папки
+        function CleanupOrphanedExclusions(){
+            var Keys = Object.keys(ExcludedPaths);
+            for(var I = 0; I < Keys.length; I++){
+                if(!IsCoveredByQueue(Keys[I])) delete ExcludedPaths[Keys[I]];
+            }
         }
 
         function GetVisibleIndices(){
@@ -622,16 +966,19 @@ public static class Bootstrap{
                 return;
             }
 
+            // Раньше здесь суммировался FileCount рекурсивно (для папки — все файлы внутри неё),
+            // из-за чего выделение одной папки с 500 файлами показывало "файлов: 500", хотя
+            // физически был выбран один элемент. Теперь считаем ровно то, что реально выделено.
             var FolderCount = 0, FileCount = 0, TotalSize = 0;
             for(var I = 0; I < Keys.length; I++){
                 var Item = SelectedPaths[Keys[I]];
                 if(Item.IsFolder) FolderCount++;
-                FileCount += (Item.IsFolder ? (Item.FileCount || 0) : 1);
-                TotalSize += (Item.Size || 0);
+                else FileCount++;
+                TotalSize += (Item.Size || 0); // вес остаётся рекурсивным — это реальный объём на скачивание
             }
 
             Box.style.display = "block";
-            Box.textContent = "Выбрано: файлов " + FileCount + ", папок " + FolderCount + ", суммарный размер " + FormatSize(TotalSize);
+            Box.innerHTML = "Выбрано: файлов " + FileCount + ", папок " + FolderCount + ", суммарный размер " + SizeHtml(TotalSize) + FormatPercentOfRepo(TotalSize);
         }
 
         function ClearSelection(){
@@ -682,8 +1029,13 @@ public static class Bootstrap{
             if(!SelectedPaths[FullPath]){
                 SelectedPaths = {};
                 SelectedPaths[FullPath] = LastChildren[Index];
-                RenderChildren();
-                UpdateSelectionInfo();
+
+                // Не перерисовываем DOM синхронно внутри dragstart — если удалить
+                // перетаскиваемый узел из документа прямо сейчас, браузер оборвёт drag.
+                setTimeout(function(){
+                    RenderChildren();
+                    UpdateSelectionInfo();
+                }, 0);
             }
 
             var Paths   = Object.keys(SelectedPaths);
@@ -694,14 +1046,22 @@ public static class Bootstrap{
         }
 
         function AddItemsToQueue(Items){
-            var Added = 0;
+            var Changed = 0;
             for(var I = 0; I < Items.length; I++){
                 var It = Items[I];
-                if(GetQueueStatus(It.Path) !== "none") continue;
+
+                // Перетаскивание ранее исключённого элемента обратно на дроп-зону — снимаем исключение
+                if(ExcludedPaths[It.Path]){
+                    delete ExcludedPaths[It.Path];
+                    Changed++;
+                    continue;
+                }
+
+                if(GetEffectiveStatus(It.Path) !== "none") continue;
                 DownloadQueue[It.Path] = { Path: It.Path, IsFolder: It.IsFolder, Size: It.Size, FileCount: It.FileCount };
-                Added++;
+                Changed++;
             }
-            if(Added > 0) RenderDownloadQueue();
+            if(Changed > 0) RenderDownloadQueue();
             RenderChildren();
         }
 
@@ -709,6 +1069,57 @@ public static class Bootstrap{
             var Keys  = Object.keys(SelectedPaths);
             var Items = Keys.map(function(K){ var It = SelectedPaths[K]; return { Path: K, IsFolder: It.IsFolder, Size: It.Size, FileCount: It.FileCount }; });
             AddItemsToQueue(Items);
+        }
+
+        function RemoveSelectionFromQueue(){
+            var Keys    = Object.keys(SelectedPaths);
+            var Removed = 0;
+            for(var I = 0; I < Keys.length; I++){
+                if(DownloadQueue[Keys[I]]){
+                    delete DownloadQueue[Keys[I]];
+                    Removed++;
+                }
+            }
+            if(Removed > 0){
+                CleanupOrphanedExclusions();
+                RenderDownloadQueue();
+                RenderChildren();
+                ShowToast(Removed === 1 ? "Убрано из очереди" : "Убрано из очереди: " + Removed);
+            }
+        }
+
+        function ExcludeSelection(){
+            var Keys  = Object.keys(SelectedPaths);
+            var Added = 0;
+            for(var I = 0; I < Keys.length; I++){
+                var Path = Keys[I];
+                if(ExcludedPaths[Path]) continue;
+                if(!IsCoveredByQueue(Path)) continue;
+                var It = SelectedPaths[Path];
+                ExcludedPaths[Path] = { IsFolder: It.IsFolder, Size: It.Size, FileCount: It.FileCount };
+                Added++;
+            }
+            if(Added > 0){
+                RenderDownloadQueue();
+                RenderChildren();
+                ShowToast(Added === 1 ? "Исключено из скачивания" : "Исключено из скачивания: " + Added);
+            }
+        }
+
+        function IncludeSelectionBack(){
+            var Keys    = Object.keys(SelectedPaths);
+            var Removed = 0;
+            for(var I = 0; I < Keys.length; I++){
+                if(ExcludedPaths[Keys[I]]){
+                    delete ExcludedPaths[Keys[I]];
+                    Removed++;
+                }
+            }
+            if(Removed > 0){
+                RenderDownloadQueue();
+                RenderChildren();
+                ShowToast(Removed === 1 ? "Исключение снято" : "Снято исключений: " + Removed);
+            }
         }
 
         function HandleContextMenu(Event, Index){
@@ -723,16 +1134,30 @@ public static class Bootstrap{
                 UpdateSelectionInfo();
             }
 
-            var SelectedCount = Object.keys(SelectedPaths).length;
-            var Item          = LastChildren[Index];
+            var Keys = Object.keys(SelectedPaths);
+            var Item = LastChildren[Index];
+
+            var HasNone = false, HasQueuedDirect = false, HasCovered = false, HasExcludedDirect = false;
+            for(var I = 0; I < Keys.length; I++){
+                var P = Keys[I];
+                if(ExcludedPaths[P])            HasExcludedDirect = true;
+                else if(DownloadQueue[P])       HasQueuedDirect   = true;
+                else if(IsCoveredByQueue(P))    HasCovered        = true;
+                else if(!IsPathExcluded(P))     HasNone           = true;
+            }
 
             var Items = [];
-            if(SelectedCount === 1 && Item.IsFolder){
+            if(Keys.length === 1 && Item.IsFolder){
                 Items.push({ Label: "📂 Открыть", Action: function(){ Navigate(FullPath); } });
                 Items.push({ Separator: true });
             }
 
-            Items.push({ Label: "⬇ Добавить в очередь на скачивание", Action: AddSelectionToQueue });
+            if(HasNone)           Items.push({ Label: "⬇ Добавить в очередь на скачивание", Action: AddSelectionToQueue });
+            if(HasQueuedDirect)   Items.push({ Label: "✖ Убрать из очереди", Action: RemoveSelectionFromQueue });
+            if(HasCovered)        Items.push({ Label: "🚫 Исключить из скачивания", Action: ExcludeSelection });
+            if(HasExcludedDirect) Items.push({ Label: "✅ Убрать исключение", Action: IncludeSelectionBack });
+
+            Items.push({ Separator: true });
             Items.push({ Label: "📋 Копировать путь", Action: CopySelectedPaths });
 
             ShowContextMenu(Event.clientX, Event.clientY, Items);
@@ -747,11 +1172,29 @@ public static class Bootstrap{
             ]);
         }
 
+        // Копирование путей с гарантированным уведомлением (что именно скопировано)
         function CopySelectedPaths(){
             var Keys = Object.keys(SelectedPaths);
-            if(navigator.clipboard && navigator.clipboard.writeText){
-                navigator.clipboard.writeText(Keys.join("\n"));
+            if(Keys.length === 0){
+                ShowToast("Нечего копировать — ничего не выбрано");
+                return;
             }
+
+            var Text = Keys.join("\n");
+            CopyTextToClipboard(Text, function(Success){
+                if(!Success){
+                    ShowToast("Не удалось скопировать путь");
+                    return;
+                }
+
+                if(Keys.length === 1){
+                    var Preview = Keys[0];
+                    if(Preview.length > 70) Preview = Preview.slice(0, 67) + "...";
+                    ShowToast("Скопировано: " + Preview);
+                }else{
+                    ShowToast("Скопировано путей: " + Keys.length);
+                }
+            });
         }
 
         function ShowContextMenu(X, Y, Items){
@@ -779,7 +1222,7 @@ public static class Bootstrap{
             }
 
             Menu.style.display = "block";
-            Menu.style.left = Math.min(X, window.innerWidth - 220) + "px";
+            Menu.style.left = Math.min(X, window.innerWidth - 240) + "px";
             Menu.style.top  = Math.min(Y, window.innerHeight - (Items.length * 34 + 20)) + "px";
         }
 
@@ -812,15 +1255,16 @@ public static class Bootstrap{
                 var Item       = LastChildren[I];
                 var FullPath   = ChildFullPath(Item);
                 var Icon       = Item.IsFolder ? "📁" : "📄";
-                var Status     = GetQueueStatus(FullPath);
+                var Status     = GetEffectiveStatus(FullPath);
                 var RowClasses = [];
                 if(SelectedPaths[FullPath]) RowClasses.push("Selected");
-                if(Status !== "none") RowClasses.push("Queued");
+                if(Status === "excluded") RowClasses.push("Excluded");
+                else if(Status !== "none") RowClasses.push("Queued");
 
                 Html += '<tr class="' + RowClasses.join(" ") + '" draggable="true" data-index="' + I + '">'
                      +  '<td>' + Icon + ' ' + Item.Name + '</td>'
                      +  '<td>' + (Item.IsFolder ? "Папка" : "Файл") + '</td>'
-                     +  '<td>' + FormatSize(Item.Size) + '</td>'
+                     +  '<td>' + SizeHtml(Item.Size) + '</td>'
                      +  '</tr>';
             }
             Html += "</tbody></table>";
@@ -860,14 +1304,19 @@ public static class Bootstrap{
                 var Item        = LastChildren[I];
                 var FullPath    = ChildFullPath(Item);
                 var Icon        = Item.IsFolder ? "📁" : "📄";
-                var Status      = GetQueueStatus(FullPath);
+                var Status      = GetEffectiveStatus(FullPath);
                 var TileClasses = ["Tile"];
+                if(Item.IsFolder) TileClasses.push("IsFolder");
                 if(SelectedPaths[FullPath]) TileClasses.push("Selected");
-                if(Status !== "none") TileClasses.push("Queued");
+                if(Status === "excluded") TileClasses.push("Excluded");
+                else if(Status !== "none") TileClasses.push("Queued");
 
-                Html += '<div class="' + TileClasses.join(" ") + '" draggable="true" data-index="' + I + '">'
+                var TypeLabel = Item.IsFolder ? "Папка" : "Файл";
+
+                Html += '<div class="' + TileClasses.join(" ") + '" draggable="true" data-index="' + I + '" title="' + Item.Name + '">'
                      +  '<div class="TileIcon">' + Icon + '</div>'
                      +  '<div class="TileName">' + Item.Name + '</div>'
+                     +  '<div class="TileMeta">' + TypeLabel + ' · ' + SizeHtml(Item.Size) + '</div>'
                      +  '</div>';
             }
             Html += '</div>';
@@ -900,18 +1349,21 @@ public static class Bootstrap{
         }
 
         function UpdateStatusBar(Data){
-            document.getElementById("StatusBar").textContent =
-                "Файлов: " + Data.FileCount + " · Папок: " + Data.FolderCount + " · Суммарный размер: " + FormatSize(Data.TotalSize);
+            document.getElementById("StatusBar").innerHTML =
+                "Файлов: " + Data.FileCount + " · Папок: " + Data.FolderCount + " · Суммарный размер: " + SizeHtml(Data.TotalSize);
         }
 
         function UpdateRepoInfo(Repo){
+            var RepoUrl = "https://github.com/" + encodeURIComponent(Repo.Owner) + "/" + encodeURIComponent(Repo.Name);
+
             var Html =
                 "<b>" + Repo.Owner + "/" + Repo.Name + "</b><br/>" +
                 "Ветка: " + Repo.DefaultBranch + "<br/>" +
                 "Коммит: " + Repo.CommitSha.substring(0, 10) + "<br/>" +
                 "Всего файлов: " + Repo.FilesFound + "<br/>" +
                 "Всего папок: " + Repo.FoldersFound + "<br/>" +
-                "Общий размер: " + FormatSize(Repo.TotalSize);
+                "Общий размер: " + SizeHtml(Repo.TotalSize) + "<br/>" +
+                '<a href="' + RepoUrl + '" id="RepoLink">🔗 Открыть на GitHub</a>';
 
             if(Repo.Status !== 2){
                 Html += '<div id="RepoWarning">⚠ Сканирование не завершено' +
@@ -920,6 +1372,14 @@ public static class Bootstrap{
             }
 
             document.getElementById("RepoInfo").innerHTML = Html;
+
+            var LinkEl = document.getElementById("RepoLink");
+            if(LinkEl){
+                LinkEl.onclick = function(Event){
+                    Event.preventDefault();
+                    Send("OpenExternal", { Url: RepoUrl });
+                };
+            }
         }
 
         function RenderDownloadQueue(){
@@ -929,7 +1389,7 @@ public static class Bootstrap{
 
             if(Keys.length === 0){
                 Container.innerHTML = "";
-                Summary.textContent = "";
+                Summary.innerHTML = "";
                 return;
             }
 
@@ -942,29 +1402,175 @@ public static class Bootstrap{
                 var Ignored  = IsQueueEntryIgnored(Path);
                 var ItemCls  = Ignored ? "QueueItem Ignored" : "QueueItem";
                 var Suffix   = Ignored ? ' <span title="Уже входит в другую добавленную папку">(перекрыто)</span>' : "";
+                var TitleAttr = Path + " · " + FormatBytesExact(Entry.Size);
 
-                Html += '<div class="' + ItemCls + '"><span class="QueueItemName" title="' + Path + '">' + Icon + ' ' + Path + Suffix + '</span>'
+                Html += '<div class="' + ItemCls + '"><span class="QueueItemName" title="' + TitleAttr + '">' + Icon + ' ' + Path + Suffix + '</span>'
                      +  '<button data-path="' + Path + '">×</button></div>';
 
                 if(!Ignored){
-                    TotalFiles += (Entry.IsFolder ? (Entry.FileCount || 0) : 1);
-                    TotalSize  += (Entry.Size || 0);
+                    var ExcludedInfo = Entry.IsFolder ? GetExcludedTotalsUnder(Path) : { Size: 0, Files: 0 };
+                    TotalFiles += (Entry.IsFolder ? (Entry.FileCount || 0) : 1) - ExcludedInfo.Files;
+                    TotalSize  += (Entry.Size || 0) - ExcludedInfo.Size;
+
+                    if(Entry.IsFolder){
+                        var ExcludedKeys = Object.keys(ExcludedPaths).filter(function(P){
+                            return P !== Path && P.indexOf(Path) === 0 && !IsExcludeEntryIgnored(P);
+                        });
+                        for(var K = 0; K < ExcludedKeys.length; K++){
+                            var EPath  = ExcludedKeys[K];
+                            var EEntry = ExcludedPaths[EPath];
+                            var EIcon  = EEntry.IsFolder ? "📁" : "📄";
+                            Html += '<div class="QueueItem QueueSubItem Excluded"><span class="QueueItemName" title="' + EPath + ' · ' + FormatBytesExact(EEntry.Size) + '">' + EIcon + ' ' + EPath + ' <i>(исключено)</i></span>'
+                                 +  '<button data-excluded-path="' + EPath + '">×</button></div>';
+                        }
+                    }
                 }
             }
             Container.innerHTML = Html;
-            Summary.textContent = "Всего файлов: " + TotalFiles + " · Общий размер: " + FormatSize(TotalSize);
+            Summary.innerHTML = "Всего файлов: " + TotalFiles + " · Общий размер: " + SizeHtml(TotalSize);
 
             var RemoveButtons = Container.querySelectorAll("button[data-path]");
             for(var J = 0; J < RemoveButtons.length; J++){
                 (function(Btn){
                     Btn.onclick = function(){
                         delete DownloadQueue[Btn.dataset.path];
+                        CleanupOrphanedExclusions();
                         RenderDownloadQueue();
                         RenderChildren();
                     };
                 })(RemoveButtons[J]);
             }
+
+            var UnexcludeButtons = Container.querySelectorAll("button[data-excluded-path]");
+            for(var M = 0; M < UnexcludeButtons.length; M++){
+                (function(Btn){
+                    Btn.onclick = function(){
+                        delete ExcludedPaths[Btn.dataset.excludedPath];
+                        RenderDownloadQueue();
+                        RenderChildren();
+                    };
+                })(UnexcludeButtons[M]);
+            }
         }
+
+        // ---------- Поиск по всему репозиторию ----------
+
+        function OpenGlobalSearch(){
+            document.getElementById("Content").classList.add("GlobalSearchActive");
+            document.getElementById("GlobalSearchInput").focus();
+        }
+
+        function CloseGlobalSearch(){
+            document.getElementById("Content").classList.remove("GlobalSearchActive");
+        }
+
+        function RunGlobalSearch(){
+            var Term = document.getElementById("GlobalSearchInput").value.trim();
+            if(Term === ""){
+                document.getElementById("GlobalSearchResultsArea").innerHTML = '<div id="GlobalSearchPlaceholder">Введите запрос и нажмите «Искать»</div>';
+                document.getElementById("GlobalSearchSummary").innerHTML = "";
+                return;
+            }
+            document.getElementById("GlobalSearchResultsArea").innerHTML = '<div id="GlobalSearchPlaceholder">Поиск...</div>';
+            Send("SearchRepo", { Term: Term });
+        }
+
+        function SearchTypeLabel(Type){
+            if(Type === 1) return "Папка";
+            if(Type === 2) return "Подмодуль";
+            return "Файл";
+        }
+
+        function SearchTypeIcon(Type){
+            if(Type === 1) return "📁";
+            if(Type === 2) return "🔗";
+            return "📄";
+        }
+
+        function SortIndicator(Field){
+            if(GlobalSearchSortField !== Field) return "";
+            return GlobalSearchSortDir === 1 ? " ▲" : " ▼";
+        }
+
+        function SetGlobalSearchSort(Field){
+            if(GlobalSearchSortField === Field) GlobalSearchSortDir = -GlobalSearchSortDir;
+            else{
+                GlobalSearchSortField = Field;
+                GlobalSearchSortDir   = 1;
+            }
+            RenderGlobalSearchResults();
+        }
+
+        function RenderGlobalSearchResults(){
+            var Area = document.getElementById("GlobalSearchResultsArea");
+
+            if(GlobalSearchResults.length === 0){
+                Area.innerHTML = '<div id="GlobalSearchPlaceholder">' + (GlobalSearchLastTerm ? "Ничего не найдено" : "Введите запрос и нажмите «Искать»") + '</div>';
+                document.getElementById("GlobalSearchSummary").innerHTML = "";
+                return;
+            }
+
+            var Sorted = GlobalSearchResults.slice();
+            Sorted.sort(function(A, B){
+                var Result = 0;
+                if(GlobalSearchSortField === "Path"){
+                    var AL = A.Path.toLowerCase(), BL = B.Path.toLowerCase();
+                    Result = AL < BL ? -1 : (AL > BL ? 1 : 0);
+                }else if(GlobalSearchSortField === "Type"){
+                    Result = A.Type - B.Type;
+                }else if(GlobalSearchSortField === "Size"){
+                    Result = (A.Size || 0) - (B.Size || 0);
+                }
+                return Result * GlobalSearchSortDir;
+            });
+
+            var Html = '<table><thead><tr>'
+                + '<th class="SortableHeader" data-field="Path">Путь' + SortIndicator("Path") + '</th>'
+                + '<th class="SortableHeader" data-field="Type">Тип' + SortIndicator("Type") + '</th>'
+                + '<th class="SortableHeader" data-field="Size">Размер' + SortIndicator("Size") + '</th>'
+                + '</tr></thead><tbody>';
+
+            for(var I = 0; I < Sorted.length; I++){
+                var Item = Sorted[I];
+                Html += '<tr data-path="' + Item.Path + '">'
+                     +  '<td title="' + Item.Path + '">' + SearchTypeIcon(Item.Type) + ' ' + Item.Path + '</td>'
+                     +  '<td>' + SearchTypeLabel(Item.Type) + '</td>'
+                     +  '<td>' + SizeHtml(Item.Size) + '</td>'
+                     +  '</tr>';
+            }
+            Html += '</tbody></table>';
+            Area.innerHTML = Html;
+
+            var Headers = Area.querySelectorAll(".SortableHeader");
+            for(var H = 0; H < Headers.length; H++){
+                (function(HeaderEl){
+                    HeaderEl.onclick = function(){ SetGlobalSearchSort(HeaderEl.dataset.field); };
+                })(Headers[H]);
+            }
+
+            var Rows = Area.querySelectorAll("tbody tr");
+            for(var R = 0; R < Rows.length; R++){
+                (function(RowEl){
+                    RowEl.ondblclick = function(){
+                        var Parent = GetParentPath(RowEl.dataset.path);
+                        CloseGlobalSearch();
+                        Navigate(Parent);
+                    };
+                })(Rows[R]);
+            }
+
+            document.getElementById("GlobalSearchSummary").textContent =
+                "Найдено: " + GlobalSearchResults.length + (GlobalSearchTruncated ? " (показаны первые " + GlobalSearchResults.length + ", уточните запрос)" : "");
+        }
+
+        document.getElementById("GlobalSearchBtn").onclick     = OpenGlobalSearch;
+        document.getElementById("CloseGlobalSearchBtn").onclick = CloseGlobalSearch;
+        document.getElementById("RunGlobalSearchBtn").onclick   = RunGlobalSearch;
+        document.getElementById("GlobalSearchInput").onkeydown  = function(Event){
+            if(Event.key === "Enter") RunGlobalSearch();
+        };
+
+        // ---------- /Поиск по всему репозиторию ----------
 
         document.getElementById("OpenDbBtn").onclick = function(){ Send("OpenDatabase", {}); };
 
@@ -972,6 +1578,7 @@ public static class Bootstrap{
 
         document.getElementById("ClearQueueBtn").onclick = function(){
             DownloadQueue = {};
+            ExcludedPaths = {};
             RenderDownloadQueue();
             RenderChildren();
         };
@@ -1038,16 +1645,47 @@ public static class Bootstrap{
                 case "DatabaseOpened":
                     document.getElementById("DbPathInput").value = Msg.Data.Path;
                     UpdateRepoInfo(Msg.Data);
+
+                    RepoTotalSize  = Msg.Data.TotalSize  || 0;
+                    RepoTotalFiles = Msg.Data.FilesFound || 0;
+
+                    // Сбрасываем всё, что относится к предыдущему репозиторию —
+                    // иначе очередь/исключения/выделение/путь/поиск будут указывать
+                    // на несуществующие в новой базе объекты.
+                    CurrentPath      = "";
+                    SelectedPaths    = {};
+                    LastClickedIndex = null;
+                    DownloadQueue    = {};
+                    ExcludedPaths    = {};
+                    RenderDownloadQueue();
+
+                    GlobalSearchResults  = [];
+                    GlobalSearchLastTerm = "";
+                    CloseGlobalSearch();
+                    document.getElementById("GlobalSearchInput").value = "";
+                    document.getElementById("GlobalSearchResultsArea").innerHTML = '<div id="GlobalSearchPlaceholder">Введите запрос и нажмите «Искать»</div>';
+                    document.getElementById("GlobalSearchSummary").innerHTML = "";
                     break;
 
                 case "FolderListing":
-                    RenderBreadcrumb(Msg.Data.Path);
+                    // Путь — источник истины от сервера. Раньше CurrentPath обновлялся
+                    // только внутри Navigate(), из-за чего после смены базы данных
+                    // оставался путь от старого репозитория.
+                    CurrentPath      = Msg.Data.Path;
                     LastChildren     = Msg.Data.Children;
                     SelectedPaths    = {};
                     LastClickedIndex = null;
+                    RenderBreadcrumb(Msg.Data.Path);
                     RenderChildren();
                     UpdateSelectionInfo();
                     UpdateStatusBar(Msg.Data);
+                    break;
+
+                case "SearchResults":
+                    GlobalSearchResults   = Msg.Data.Results || [];
+                    GlobalSearchTruncated = Msg.Data.Truncated;
+                    GlobalSearchLastTerm  = Msg.Data.Term;
+                    RenderGlobalSearchResults();
                     break;
 
                 case "Error":
