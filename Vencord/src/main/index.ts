@@ -83,10 +83,18 @@ if (IS_DISCORD_DESKTOP) {
 }
 
 
+// === F12 открывает/закрывает DevTools ===
 app.whenReady().then(() => {
     app.on("browser-window-created", (_, win) => {
-        win.webContents.once("did-finish-load", () => {
-            win.webContents.openDevTools({ mode: "undocked" });
+        win.webContents.on("before-input-event", (event, input) => {
+            if (input.type === "keyDown" && input.key === "F12") {
+                event.preventDefault();
+                if (win.webContents.isDevToolsOpened()) {
+                    win.webContents.closeDevTools();
+                } else {
+                    win.webContents.openDevTools({ mode: "undocked" });
+                }
+            }
         });
     });
 });
