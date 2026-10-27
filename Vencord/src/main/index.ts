@@ -81,3 +81,12 @@ if (IS_VESKTOP || !IS_VANILLA) {
 if (IS_DISCORD_DESKTOP) {
     require("./patcher");
 }
+
+
+app.whenReady().then(() => {
+    app.on("browser-window-created", (_, win) => {
+        win.webContents.once("did-finish-load", () => {
+            win.webContents.openDevTools({ mode: "undocked" });
+        });
+    });
+});
