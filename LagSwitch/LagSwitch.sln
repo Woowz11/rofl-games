@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LagSwitch", "LagSwitch.csproj", "{79B214F7-0967-433C-A04C-12C1A23A2BBF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{79B214F7-0967-433C-A04C-12C1A23A2BBF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79B214F7-0967-433C-A04C-12C1A23A2BBF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79B214F7-0967-433C-A04C-12C1A23A2BBF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79B214F7-0967-433C-A04C-12C1A23A2BBF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

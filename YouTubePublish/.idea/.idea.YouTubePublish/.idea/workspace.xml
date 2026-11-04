@@ -8,8 +8,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="3ae77899-ed68-401c-9e5c-39476c7e827a" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/../AutoStart/RUN_ALL.bat" beforeDir="false" afterPath="$PROJECT_DIR$/../AutoStart/RUN_ALL.bat" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.idea.YouTubePublish/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.idea.YouTubePublish/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../AutoStart/RUN_ALL_USER.bat" beforeDir="false" afterPath="$PROJECT_DIR$/../AutoStart/RUN_ALL_USER.bat" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -104,6 +103,7 @@
       <workItem from="1792581217004" duration="716000" />
       <workItem from="1792666387497" duration="622000" />
       <workItem from="1792702600551" duration="315000" />
+      <workItem from="1793437653873" duration="55000" />
     </task>
     <servers />
   </component>
