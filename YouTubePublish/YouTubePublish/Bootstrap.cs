@@ -1,8 +1,9 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text.Encodings.Web;
+using IOPath = System.IO.Path;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
 using WLO;
 using WLO.Math;
 
@@ -21,6 +22,21 @@ public static class Bootstrap{
     private static volatile string? __PendingTitle = null;
 
     private static volatile int __CurrentAutoPublishRunNumber = 0;
+    
+    private static readonly ConcurrentDictionary<string, byte>   __InProgress     = new();
+    private static readonly ConcurrentDictionary<string, string> __Locked         = new(); // Name -> причина
+    private static readonly ConcurrentDictionary<string, long>   __LastProgressAt = new();
+    private static readonly ConcurrentQueue<string>              __StartupNotices = new();
+
+    private static int                     __CriticalSections = 0;
+    private static System.Threading.Timer? __StallTimer;
+
+    private static readonly JsonSerializerOptions __JournalJson = new(){
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    private const string JournalFilePath = @"W:\Woowz11\Videos\Записи\YT\!Journal.jsonl";
+    private const string BackupFolder    = @"W:\Woowz11\Videos\Записи\YT\!Backups";
 
     [STAThread]
     public static int Main(string[] Args){
@@ -56,6 +72,24 @@ const ProgressByName  = new Map();
 let LastVideos    = [];
 let SortKey       = "Name";
 let SortAscending = true;
+
+const ListWrapper      = document.getElementById("VideoListWrapper");
+const FollowCheckbox   = document.getElementById("Input-Follow");
+const StageByName      = new Map();
+const WarningByName    = new Map();
+const LockedByName     = new Map();
+const RetryCountByName = new Map();
+let FollowPausedUntil  = 0;
+
+// Если ты сам крутишь список, автопрокрутка молчит 15 секунд
+for(const Ev of ["wheel", "touchstart", "mousedown", "keydown"]){
+    ListWrapper.addEventListener(Ev, () => { FollowPausedUntil = Date.now() + 15000; }, { passive: true });
+}
+
+function FollowVideo(Name){
+    if(!FollowCheckbox.checked || Date.now() < FollowPausedUntil){ return; }
+    CardsByName.get(Name)?.scrollIntoView({ block: "center", behavior: "auto" });
+}
 
 // ----------------------------------------------------------------------
 
@@ -176,15 +210,26 @@ function StartPublishUI(Video){
     FailedByName.delete(Video.Name);
     PublishingNames.add(Video.Name);
     ProgressByName.set(Video.Name, { BytesSent: 0, TotalBytes: Video.SizeBytes, Percent: 0 });
+    StageByName.set(Video.Name, "Запуск…");
 
     RenderVideos(SortVideos(LastVideos));
+    if(IsAutoPublish){ FollowVideo(Video.Name); }
 
     SendToHost("PublishRequest", { Name: Video.Name, IsAutoPublish, ChunkSizeMB: GetChunkSizeMB() });
 }
 
 // ----------------------------------------------------------------------
 
+function AddBanner(Card, Icon, Text){
+    const Banner = document.createElement("div");
+    Banner.className = "ErrorBanner";
+    Banner.innerHTML = `<span class="ErrorBannerIcon">${Icon}</span><span>${EscapeHtml(Text)}</span>`;
+    Card.appendChild(Banner);
+}
+
 function RenderVideos(Videos){
+    const SavedScroll = ListWrapper.scrollTop;
+
     ListElement.innerHTML = "";
     CardsByName.clear();
     CountElement.textContent = Videos ? Videos.length : 0;
@@ -207,11 +252,12 @@ function RenderVideos(Videos){
     for(const Video of Videos){
         const IsFailed     = FailedByName.has(Video.Name);
         const IsPublishing = PublishingNames.has(Video.Name);
+        const LockedReason = Video.LockedReason ?? LockedByName.get(Video.Name);
 
         const Card = document.createElement("div");
         Card.className = "VideoCard"
             + (Video.IsPublished ? " Published" : "")
-            + (IsFailed ? " Failed" : "")
+            + ((IsFailed || LockedReason) ? " Failed" : "")
             + (IsPublishing ? " Publishing" : "");
         Card.dataset.name = Video.Name;
         Card.style.background = `linear-gradient(90deg, ${GetWeightColor(Video.SizeBytes)}, #1e1e1e 70%)`;
@@ -234,6 +280,7 @@ function RenderVideos(Videos){
             <span>${Video.HasDate ? "📅" : "❓"} ${Video.Date ?? "Дата неизвестна"}</span>
             ${Video.IsPublished ? `<span>✅ Опубликовано${Video.MyID ? ` (ID: ${Video.MyID})` : ""}</span>` : ""}
             ${IsFailed ? "<span class=\"FailedChip\">❌ Ошибка публикации</span>" : ""}
+            ${LockedReason ? "<span class=\"FailedChip\">🔒 Заблокировано</span>" : ""}
         `;
 
         Info.appendChild(Name);
@@ -244,6 +291,9 @@ function RenderVideos(Videos){
 
         if(Video.IsPublished){
             Button.textContent = "Опубликовано";
+            Button.disabled = true;
+        }else if(LockedReason){
+            Button.textContent = "Нужны ручные действия";
             Button.disabled = true;
         }else if(IsPublishing){
             Button.textContent = "Публикация...";
@@ -265,26 +315,27 @@ function RenderVideos(Videos){
             const Progress = document.createElement("div");
             Progress.className = "ProgressWrapper";
             Progress.innerHTML = `
+                <div class="StageText">${EscapeHtml(StageByName.get(Video.Name) ?? "")}</div>
                 <div class="ProgressBar"><div class="ProgressBarFill" style="width:${Percent}%"></div></div>
                 <div class="ProgressText">${Percent}% — ${FormatSize(Remaining)} осталось</div>
             `;
             Card.appendChild(Progress);
         }
 
-        if(IsFailed){
-            const Banner = document.createElement("div");
-            Banner.className = "ErrorBanner";
-            Banner.innerHTML = `<span class="ErrorBannerIcon">⚠️</span><span>${EscapeHtml(FailedByName.get(Video.Name))}</span>`;
-            Card.appendChild(Banner);
-        }
+        if(LockedReason){ AddBanner(Card, "🔒", LockedReason); }
+        if(IsFailed){ AddBanner(Card, "⚠️", FailedByName.get(Video.Name)); }
+        if(WarningByName.has(Video.Name)){ AddBanner(Card, "⚠️", WarningByName.get(Video.Name)); }
 
         ListElement.appendChild(Card);
         CardsByName.set(Video.Name, Card);
     }
+
+    ListWrapper.scrollTop = SavedScroll;
 }
 
 function UpdateProgress(Data){
     ProgressByName.set(Data.Name, Data);
+    UpdateStage(Data.Name, "Загрузка на YouTube");
 
     const Card = CardsByName.get(Data.Name);
     if(!Card){ return; }
@@ -300,6 +351,12 @@ function UpdateProgress(Data){
     Text.textContent = `${Percent}% — ${FormatSize(Remaining)} осталось`;
 }
 
+function UpdateStage(Name, Stage){
+    StageByName.set(Name, Stage);
+    const El = CardsByName.get(Name)?.querySelector(".StageText");
+    if(El){ El.textContent = Stage; }
+}
+
 // ----------------------------------------------------------------------
 
 const QuotaFailReasons = new Set(["QuotaExceeded", "UploadLimitExceeded"]);
@@ -307,6 +364,16 @@ const QuotaFailReasons = new Set(["QuotaExceeded", "UploadLimitExceeded"]);
 let AutoPublishActive   = false;
 let AutoPublishQueue    = [];
 let AutoPublishInFlight = new Set();
+
+const NoRetryCodes   = new Set(["NotFound", "LocalError", "FileBusy", "QuotaExceeded", "UploadLimitExceeded"]);
+const MaxAutoRetries = 2;
+let   AutoStats      = { Done: 0, Problems: [] };
+
+function ShowAutoSummary(Title){
+    const Lines = [`Опубликовано: ${AutoStats.Done}`, `Проблем: ${AutoStats.Problems.length}`];
+    if(AutoStats.Problems.length > 0){ Lines.push("", ...AutoStats.Problems); }
+    ShowError(Title, Lines.join("\n"));
+}
 
 function GetConcurrency(){
     let Value = parseInt(ConcurrencyInput.value, 10);
@@ -328,28 +395,6 @@ function UpdateAutoPublishButtonUI(){
     ConcurrencyInput.disabled = AutoPublishActive;
 }
 
-function StartAutoPublish(){
-    const Candidates = SortVideos(LastVideos).filter(V => !V.IsPublished && !PublishingNames.has(V.Name));
-
-    if(Candidates.length === 0){
-        ShowError("Автопубликация", "Нет видео для публикации.");
-        return;
-    }
-
-    SendToHost("AutoPublishStarted");
-
-    AutoPublishQueue = Candidates.map(V => V.Name);
-    AutoPublishInFlight.clear();
-    AutoPublishActive = true;
-
-    UpdateAutoPublishButtonUI();
-
-    const Concurrency = GetConcurrency();
-    for(let i = 0; i < Concurrency; i++){
-        AutoPublishPumpNext();
-    }
-}
-
 function StopAutoPublish(Reason){
     if(!AutoPublishActive){ return; }
 
@@ -363,17 +408,50 @@ function StopAutoPublish(Reason){
     }
 }
 
+AutoPublishButton.onclick = () => {
+    if(AutoPublishActive){
+        StopAutoPublish("Остановлено пользователем.");
+    }else{
+        StartAutoPublish();
+    }
+};
+
+function StartAutoPublish(){
+    const Candidates = SortVideos(LastVideos).filter(V =>
+        !V.IsPublished && !PublishingNames.has(V.Name) && !V.LockedReason && !LockedByName.has(V.Name));
+
+    if(Candidates.length === 0){
+        ShowError("Автопубликация", "Нет видео для публикации.");
+        return;
+    }
+
+    SendToHost("AutoPublishStarted");
+
+    AutoStats = { Done: 0, Problems: [] };
+    RetryCountByName.clear();
+    AutoPublishQueue  = Candidates.map(V => V.Name);
+    AutoPublishActive = true;
+
+    UpdateAutoPublishButtonUI();
+
+    const Concurrency = GetConcurrency();
+    for(let i = AutoPublishInFlight.size; i < Concurrency; i++){
+        AutoPublishPumpNext();
+    }
+}
+
 function AutoPublishPumpNext(){
     if(!AutoPublishActive){ return; }
 
     if(AutoPublishQueue.length === 0){
         if(AutoPublishInFlight.size === 0){
             StopAutoPublish(null);
+            ShowAutoSummary("Автопубликация завершена");
         }
         return;
     }
 
-    const Name = AutoPublishQueue.shift();
+    const Name  = AutoPublishQueue.shift();
     const Video = LastVideos.find(V => V.Name === Name);
 
     if(!Video || Video.IsPublished || PublishingNames.has(Name)){
@@ -385,61 +463,75 @@ function AutoPublishPumpNext(){
     StartPublishUI(Video);
 }
 
-AutoPublishButton.onclick = () => {
-    if(AutoPublishActive){
-        StopAutoPublish("Остановлено пользователем.");
-    }else{
-        StartAutoPublish();
-    }
-};
-
-// ----------------------------------------------------------------------
-
-function MarkPublished(Name, MyID){
+function MarkPublished(Name, MyID, Warning){
     PublishingNames.delete(Name);
     ProgressByName.delete(Name);
+    StageByName.delete(Name);
+    FailedByName.delete(Name);
 
     const Video = LastVideos.find(V => V.Name === Name);
     if(Video){
         Video.IsPublished = true;
-        if(MyID !== undefined && MyID !== null){
-            Video.MyID = MyID;
-        }
+        if(MyID !== undefined && MyID !== null){ Video.MyID = MyID; }
     }
+
+    const WasAuto = AutoPublishInFlight.delete(Name);
+
+    if(Warning){
+        WarningByName.set(Name, Warning);
+        if(WasAuto){ AutoStats.Problems.push(`${Name}: ${Warning}`); }
+        else{ ShowError("Видео опубликовано, но есть предупреждение", Warning); }
+    }
+    if(WasAuto){ AutoStats.Done++; }
 
     RenderVideos(SortVideos(LastVideos));
 
-    if(AutoPublishInFlight.has(Name)){
-        AutoPublishInFlight.delete(Name);
-        AutoPublishPumpNext();
-    }
+    if(WasAuto){ AutoPublishPumpNext(); }
 }
 
 function ResetCard(Name, Reason, FailReasonCode){
     PublishingNames.delete(Name);
     ProgressByName.delete(Name);
-    FailedByName.set(Name, Reason ?? "Неизвестная ошибка");
+    StageByName.delete(Name);
 
-    RenderVideos(SortVideos(LastVideos));
-
-    const WasAutoPublishing = AutoPublishInFlight.has(Name);
-    if(WasAutoPublishing){
-        AutoPublishInFlight.delete(Name);
+    if(FailReasonCode === "LocalError"){
+        LockedByName.set(Name, Reason ?? "Нужны ручные действия");
     }
 
+    const WasAuto      = AutoPublishInFlight.delete(Name);
     const IsQuotaError = QuotaFailReasons.has(FailReasonCode);
 
-    if(WasAutoPublishing && IsQuotaError){
-        ShowError("Автопубликация остановлена: превышена квота YouTube API", `Видео: ${Name}\n${Reason ?? ""}`);
-        StopAutoPublish(null);
-    }else{
-        ShowError("Не удалось опубликовать видео", Reason ?? "");
-
-        if(WasAutoPublishing && AutoPublishActive){
+    // Автоповтор временных ошибок (в конец очереди)
+    if(WasAuto && AutoPublishActive && !IsQuotaError && !NoRetryCodes.has(FailReasonCode)){
+        const Retries = RetryCountByName.get(Name) ?? 0;
+        if(Retries < MaxAutoRetries){
+            RetryCountByName.set(Name, Retries + 1);
+            AutoPublishQueue.push(Name);
+            FailedByName.set(Name, `Попытка ${Retries + 1} не удалась, будет автоповтор.\n${Reason ?? ""}`);
+            RenderVideos(SortVideos(LastVideos));
             AutoPublishPumpNext();
+            return;
         }
     }
+
+    FailedByName.set(Name, Reason ?? "Неизвестная ошибка");
+    RenderVideos(SortVideos(LastVideos));
+
+    if(WasAuto){
+        AutoStats.Problems.push(`${Name}: ${Reason ?? "Неизвестная ошибка"}`);
+
+        if(IsQuotaError){
+            StopAutoPublish(null);
+            ShowAutoSummary("Автопубликация остановлена: превышена квота YouTube API");
+        }else if(AutoPublishActive){
+            AutoPublishPumpNext();   // без модалки: ошибка видна на карточке и войдёт в сводку
+        }
+    }else{
+        ShowError("Не удалось опубликовать видео", Reason ?? "");
+    }
 }
+
+// ----------------------------------------------------------------------
 
 document.getElementById("Btn-Refresh").onclick = () => {
     SendToHost("RefreshRequest");
@@ -447,6 +539,14 @@ document.getElementById("Btn-Refresh").onclick = () => {
 
 document.getElementById("Btn-OpenQuota").onclick = () => {
     SendToHost("OpenQuotaPage");
+};
+
+document.getElementById("Btn-OpenVideos").onclick = () => {
+    SendToHost("OpenFolder", "Videos");
+};
+
+document.getElementById("Btn-OpenPublished").onclick = () => {
+    SendToHost("OpenFolder", "Published");
 };
 
 function SendToHost(Type, Data){
@@ -483,8 +583,10 @@ if(window.chrome?.webview){
             RenderVideos(SortVideos(LastVideos));
         }else if(Message.Type === "PublishProgress"){
             UpdateProgress(Message.Data);
+        }else if(Message.Type === "PublishStage"){
+            UpdateStage(Message.Data.Name, Message.Data.Stage);
         }else if(Message.Type === "PublishComplete"){
-            MarkPublished(Message.Data.Name, Message.Data.MyID);
+            MarkPublished(Message.Data.Name, Message.Data.MyID, Message.Data.Warning);
         }else if(Message.Type === "PublishFailed"){
             ResetCard(Message.Data.Name, Message.Data.Reason, Message.Data.FailReasonCode);
         }else if(Message.Type === "Error"){
@@ -536,6 +638,7 @@ html, body{
     flex-direction: column;
     padding: 16px 12px;
     gap: 8px;
+    overflow-y: auto;
 }
 
 .SidebarButton{
@@ -873,6 +976,21 @@ html, body{
 #ErrorBox button:hover{
     background: #e60000;
 }
+
+.StageText{
+    font-size: 11px;
+    color: #4fc3f7;
+}
+
+.SidebarCheck{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #c0c0c0;
+    margin: 4px 4px 0 4px;
+    cursor: pointer;
+}
 </style>
 
 </head>
@@ -884,6 +1002,8 @@ html, body{
     <div id="Sidebar">
         <button class="SidebarButton Primary" id="Btn-Refresh">🔄 Обновить список</button>
         <button class="SidebarButton" id="Btn-OpenQuota">📊 Открыть квоту API</button>
+        <button class="SidebarButton" id="Btn-OpenVideos">📁 Папка с видео</button>
+        <button class="SidebarButton" id="Btn-OpenPublished">📂 Папка Published</button>
 
         <div class="SidebarSeparator"></div>
 
@@ -907,6 +1027,9 @@ html, body{
             <div class="SidebarLabel">Автопубликация</div>
             <label class="SidebarInputLabel" for="Input-Concurrency">Одновременно видео</label>
             <input type="number" id="Input-Concurrency" class="SidebarInput" min="1" max="20" value="3">
+            <label class="SidebarCheck">
+                <input type="checkbox" id="Input-Follow" checked> Следить за загрузкой
+            </label>
             <button class="SidebarButton Primary" id="Btn-AutoPublish">🚀 Автопубликация</button>
         </div>
     </div>
@@ -947,10 +1070,11 @@ html, body{
             // ----------------------------------------------------------------------
 
             __LoadConfig();
+            __RecoverFromJournal();
 
             YouTube = new YouTube(File.ReadAllText(@"W:\Other\rofl-games\YouTubePublish\client_secret.json"), @"W:\Other\rofl-games\YouTubePublish\UserLogin", "YoutubePublisher");
 
-            // ----------------------------------------------------------------------
+            __StallTimer = new System.Threading.Timer(_ => __CheckStalls(), null, 10_000, 10_000);
 
             while(!Window.IsClosed){
                 Window.PollEvents();
@@ -964,9 +1088,17 @@ html, body{
                 if(TitleToApply != null){
                     Window.Title = TitleToApply;
                 }
+
+                Thread.Sleep(1);
             }
 
             Window.Close();
+
+            // дождаться коротких критичных шагов (перемещение файла + запись результата)
+            Stopwatch Wait = Stopwatch.StartNew();
+            while(Volatile.Read(ref __CriticalSections) > 0 && Wait.Elapsed < TimeSpan.FromSeconds(60)){
+                Thread.Sleep(50);
+            }
         }catch(Exception e){
             WL.Logger.Fatal("Всё взорвалось...", e);
             return WL.Core.Stop(1);
@@ -991,9 +1123,19 @@ html, body{
 
             switch(Type){
                 case "Ready":
+                    __SendVideoList();
+                    __SendStartupNotices();
+                    break;
+
                 case "RefreshRequest":
                     __SendVideoList();
                     break;
+
+                case "OpenFolder":{
+                    string Kind = Doc.RootElement.GetProperty("Data").GetString() ?? "";
+                    __OpenFolder(Kind == "Published" ? PublishedFolder : VideosFolder);
+                    break;
+                }
 
                 case "PublishRequest":{
                     JsonElement DataEl = Doc.RootElement.GetProperty("Data");
@@ -1033,6 +1175,18 @@ html, body{
             __SendError("Не удалось открыть страницу квоты в браузере!", e);
         }
     }
+    
+    private static void __OpenFolder(string Folder){
+        try{
+            Directory.CreateDirectory(Folder);
+            Process.Start(new ProcessStartInfo{
+                FileName = Folder,
+                UseShellExecute = true
+            });
+        }catch(Exception e){
+            __SendError($"Не удалось открыть папку!\nПуть: {Folder}", e);
+        }
+    }
 
     private const string ConfigFilePath = @"W:\Woowz11\Videos\Записи\YT\!Config.json";
 
@@ -1056,7 +1210,7 @@ html, body{
 
     private static void __SaveConfig(){
         string JSON = JsonSerializer.Serialize(__Config, new JsonSerializerOptions{ WriteIndented = true });
-        File.WriteAllText(ConfigFilePath, JSON);
+        __WriteAllTextAtomic(ConfigFilePath, JSON);
     }
 
     private static int __GetNextID(){
@@ -1074,6 +1228,188 @@ html, body{
             return __Config.AutoPublishCount;
         }
     }
+    
+    // ======================================================================
+    //  НАДЁЖНОСТЬ: атомарная запись, бэкапы, журнал, восстановление
+    // ======================================================================
+
+    private static void __WriteAllTextAtomic(string FilePath, string Content){
+        string Temp = FilePath + ".tmp";
+        File.WriteAllText(Temp, Content);
+        if(File.Exists(FilePath)){ File.Replace(Temp, FilePath, null); }
+        else{ File.Move(Temp, FilePath); }
+    }
+
+    private static void __BackupFile(string FilePath){
+        try{
+            if(!File.Exists(FilePath)){ return; }
+            Directory.CreateDirectory(BackupFolder);
+            
+            string BaseName = IOPath.GetFileName(FilePath);
+            File.Copy(FilePath, IOPath.Combine(BackupFolder, $"{BaseName}.{DateTime.Now:yyyyMMdd_HHmmss_fff}.bak"), overwrite: false);
+
+            foreach(FileInfo Old in new DirectoryInfo(BackupFolder).GetFiles($"{BaseName}.*.bak").OrderByDescending(F => F.Name).Skip(100)){
+                Old.Delete();
+            }
+        }catch(Exception e){
+            WL.Logger.Warn($"Не удалось сделать резервную копию {FilePath}", e);
+        }
+    }
+
+    private static string __MakeUniquePath(string FilePath){
+        string Dir  = IOPath.GetDirectoryName(FilePath)!;
+        string Name = IOPath.GetFileNameWithoutExtension(FilePath);
+        string Ext  = IOPath.GetExtension(FilePath);
+        for(int i = 2; ; i++){
+            string Candidate = IOPath.Combine(Dir, $"{Name} ({i}){Ext}");
+            if(!File.Exists(Candidate)){ return Candidate; }
+        }
+    }
+
+    // ----------------------------------------------------------------------
+
+    private sealed class JournalEntry{
+        public string  Time            { get; set; } = "";
+        public int     ID              { get; set; }
+        public string  Event           { get; set; } = "";   // Started, Uploaded, Moved, Recorded, Failed
+        public string  Name            { get; set; } = "";
+        public string? RenamedFileName { get; set; }
+        public string? VideoID         { get; set; }
+        public string? CreateDate      { get; set; }
+        public double  DurationSeconds { get; set; }
+        public bool    IsShorts        { get; set; }
+        public string? Note            { get; set; }
+    }
+
+    private static readonly object __JournalLock = new();
+
+    private static void __Journal(JournalEntry E){
+        E.Time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        string Line = JsonSerializer.Serialize(E, __JournalJson);
+
+        lock(__JournalLock){
+            using FileStream FS = new(JournalFilePath, FileMode.Append, FileAccess.Write, FileShare.Read);
+            using StreamWriter SW = new(FS);
+            SW.WriteLine(Line);
+            SW.Flush();
+            FS.Flush(true); // реально на диск
+        }
+    }
+
+    private static void __TryJournal(JournalEntry E){
+        try{ __Journal(E); }
+        catch(Exception e){ WL.Logger.Error($"Не удалось записать в журнал: {E.Event} [{E.ID}]", e); }
+    }
+
+    private static List<JournalEntry> __ReadJournal(){
+        List<JournalEntry> Result = [];
+        if(!File.Exists(JournalFilePath)){ return Result; }
+
+        foreach(string Line in File.ReadLines(JournalFilePath)){
+            if(string.IsNullOrWhiteSpace(Line)){ continue; }
+            try{
+                JournalEntry? E = JsonSerializer.Deserialize<JournalEntry>(Line, __JournalJson);
+                if(E != null){ Result.Add(E); }
+            }catch(Exception e){
+                WL.Logger.Warn($"Битая строка в журнале (пропущена): {Line}", e);
+            }
+        }
+        return Result;
+    }
+
+    // ----------------------------------------------------------------------
+
+    // Идемпотентно: можно вызывать сколько угодно раз для одной записи.
+    private static (bool MoveFailed, string? Problems) __FinishPublish(JournalEntry Up){
+        List<string> Problems = [];
+        bool MoveFailed = false;
+
+        string Source = IOPath.Combine(VideosFolder, Up.Name);
+        string Dest   = IOPath.Combine(PublishedFolder, Up.RenamedFileName ?? Up.Name);
+
+        try{
+            if(File.Exists(Source)){
+                Directory.CreateDirectory(PublishedFolder);
+
+                if(File.Exists(Dest)){
+                    Dest = __MakeUniquePath(Dest);
+                    Problems.Add($"В Published уже был файл с таким именем, сохранён как «{IOPath.GetFileName(Dest)}».");
+                }
+
+                File.Move(Source, Dest); // без overwrite
+                __TryJournal(new JournalEntry{ ID = Up.ID, Event = "Moved", Name = Up.Name, RenamedFileName = IOPath.GetFileName(Dest) });
+            }
+        }catch(Exception e){
+            MoveFailed = true;
+            WL.Logger.Fatal($"ВИДЕО [{Up.Name}] ЗАГРУЖЕНО (ID: {Up.VideoID}), но файл не перемещён!", e);
+            Problems.Add($"Не удалось переместить файл в Published: {__FormatExceptionForUser(e)}");
+        }
+
+        try{
+            __AppendResultEntry(Up.ID, Up.CreateDate ?? "", Up.VideoID ?? "", TimeSpan.FromSeconds(Up.DurationSeconds), Up.IsShorts);
+            __TryJournal(new JournalEntry{ ID = Up.ID, Event = "Recorded", Name = Up.Name });
+        }catch(Exception e){
+            WL.Logger.Error($"Не удалось дописать запись [{Up.ID}] в Result.js", e);
+            Problems.Add($"Запись в Result.js не добавлена (при следующем запуске будет повтор): {__FormatExceptionForUser(e)}");
+        }
+
+        return (MoveFailed, Problems.Count == 0 ? null : string.Join("\n", Problems));
+    }
+
+    private static string __LockMessage(JournalEntry Up) =>
+        $"Видео УЖЕ ЗАГРУЖЕНО на YouTube (ID: {Up.VideoID}), но файл не удалось переместить в Published. " +
+        "Не публикуй его повторно: переложи файл вручную или перезапусти программу.";
+
+    // ----------------------------------------------------------------------
+
+    private static void __RecoverFromJournal(){
+        List<JournalEntry> All = __ReadJournal();
+        if(All.Count == 0){ return; }
+
+        // ID никогда не должны повторяться, даже если Config откатился
+        lock(__ConfigLock){
+            int MaxID = All.Max(E => E.ID);
+            if(MaxID > __Config.LastID){
+                WL.Logger.Warn($"LastID в конфиге ({__Config.LastID}) меньше, чем в журнале ({MaxID}). Исправляю.");
+                __Config.LastID = MaxID;
+                __SaveConfig();
+            }
+        }
+
+        foreach(IGrouping<int, JournalEntry> G in All.GroupBy(E => E.ID)){
+            List<JournalEntry> Events = G.ToList();
+            if(Events.Any(E => E.Event is "Recorded" or "Failed")){ continue; }
+
+            JournalEntry? Up = Events.FirstOrDefault(E => E.Event == "Uploaded");
+
+            if(Up != null){
+                (bool MoveFailed, string? Problems) = __FinishPublish(Up);
+                if(MoveFailed){ __Locked[Up.Name] = __LockMessage(Up); }
+
+                __StartupNotices.Enqueue(Problems == null
+                    ? $"✅ [{Up.ID}] «{Up.Name}» (YouTube ID: {Up.VideoID}): после сбоя публикация доведена до конца автоматически."
+                    : $"⚠ [{Up.ID}] «{Up.Name}» (YouTube ID: {Up.VideoID}):\n{Problems}");
+            }else{
+                JournalEntry S = Events[0];
+                __StartupNotices.Enqueue(
+                    $"ℹ Загрузка [{S.ID}] «{S.Name}» была прервана (закрытие окна или сбой). " +
+                    $"Файл остался на месте и будет загружен заново. Если на YouTube есть недогруженное видео «[{S.ID}]», его можно удалить.");
+                __TryJournal(new JournalEntry{ ID = S.ID, Event = "Failed", Name = S.Name, Note = "Прервано, обнаружено при запуске" });
+            }
+        }
+    }
+
+    private static void __SendStartupNotices(){
+        if(__StartupNotices.IsEmpty){ return; }
+
+        List<string> Lines = [];
+        while(__StartupNotices.TryDequeue(out string? N)){ Lines.Add(N); }
+
+        Web.PostMessage(JsonSerializer.Serialize(new{
+            Type = "Error",
+            Data = new{ Title = "Восстановление после прошлого запуска", Details = string.Join("\n\n", Lines) }
+        }));
+    }
 
     private const string ResultFilePath = @"W:\Woowz11\Videos\Записи\YT\!Result.js";
     private static readonly object __ResultFileLock = new object();
@@ -1085,8 +1421,46 @@ html, body{
     }
 
     // ----------------------------------------------------------------------
+    
+    private static readonly Regex __ResultEntryStart = new(@"^\s*\[(?<id>\d+)\s*,");
 
-    private static readonly Regex __ResultEntryIDPattern = new Regex(@"^\s*\[(?<id>\d+)\s*,", RegexOptions.Multiline);
+    private sealed class ResultFileModel{
+        public List<string>                Head    = [];  // всё до первой записи
+        public List<(int ID, string Text)> Entries = [];
+        public List<string>                Tail    = [];  // всё после последней записи
+    }
+
+    private static ResultFileModel __ParseResultFile(string Content){
+        ResultFileModel M = new();
+        if(string.IsNullOrWhiteSpace(Content)){ return M; }
+
+        foreach(string Raw in Regex.Split(Content.Replace("\r\n", "\n"), @"\n\s*\n")){
+            string Block = Raw.Trim('\n', '\r', ' ');
+            if(string.IsNullOrWhiteSpace(Block)){ continue; }
+
+            Match Start = __ResultEntryStart.Match(Block);
+
+            if(Start.Success){
+                // чужие блоки между записями приклеиваем к предыдущей записи
+                if(M.Tail.Count > 0){
+                    (int PrevID, string PrevText) = M.Entries[^1];
+                    M.Entries[^1] = (PrevID, PrevText + "\n\n" + string.Join("\n\n", M.Tail));
+                    M.Tail.Clear();
+                }
+                M.Entries.Add((int.Parse(Start.Groups["id"].Value), Block));
+            }else if(M.Entries.Count == 0){
+                M.Head.Add(Block);
+            }else{
+                M.Tail.Add(Block);
+            }
+        }
+        return M;
+    }
+
+    private static string __RenderResultFile(ResultFileModel M){
+        List<string> Parts = [..M.Head, ..M.Entries.Select(E => E.Text), ..M.Tail];
+        return string.Join("\n\n", Parts) + "\n\n";
+    }
 
     private static void __AppendResultEntry(int ID, string CreateDate, string VideoID, TimeSpan Duration, bool IsShorts){
         string PublishDate    = DateTime.Now.ToString("yyyy.MM.dd");
@@ -1100,39 +1474,29 @@ html, body{
 
         lock(__ResultFileLock){
             string Existing = File.Exists(ResultFilePath) ? File.ReadAllText(ResultFilePath) : "";
+            ResultFileModel Model = __ParseResultFile(Existing);
 
-            List<(int ID, string Text)> Entries = __ParseResultEntries(Existing);
-            Entries.Add((ID, Entry));
-            Entries.Sort((A, B) => B.ID.CompareTo(A.ID));
+            if(Model.Entries.Any(E => E.ID == ID)){ return; } // уже записано
 
-            string NewContent = string.Join("\n\n", Entries.Select(E => E.Text)) + "\n\n";
-            File.WriteAllText(ResultFilePath, NewContent);
+            List<string> OldTexts = [..Model.Head, ..Model.Entries.Select(E => E.Text), ..Model.Tail];
+            int OldCount = Model.Entries.Count;
+
+            Model.Entries.Add((ID, Entry));
+            Model.Entries.Sort((A, B) => B.ID.CompareTo(A.ID));
+            string NewContent = __RenderResultFile(Model);
+
+            // Проверка: ничего не потеряно
+            bool Ok = __ParseResultFile(NewContent).Entries.Count == OldCount + 1
+                   && OldTexts.All(T => NewContent.Contains(T));
+            if(!Ok){
+                throw new ExceptionWL("Проверка нового Result.js не пройдена, файл НЕ перезаписан (ничего не потеряно).");
+            }
+
+            __BackupFile(ResultFilePath);
+            __WriteAllTextAtomic(ResultFilePath, NewContent);
         }
     }
-
-    // ----------------------------------------------------------------------
-
-    private static List<(int ID, string Text)> __ParseResultEntries(string Content){
-        List<(int ID, string Text)> Result = [];
-
-        if(string.IsNullOrWhiteSpace(Content)){ return Result; }
-
-        string[] Blocks = Regex.Split(Content, @"\n\s*\n");
-
-        foreach(string Block in Blocks){
-            string Trimmed = Block.Trim('\n', '\r', ' ');
-            if(string.IsNullOrWhiteSpace(Trimmed)){ continue; }
-
-            Match M = __ResultEntryIDPattern.Match(Trimmed);
-            if(!M.Success){ continue; }
-
-            int ID = int.Parse(M.Groups["id"].Value);
-            Result.Add((ID, Trimmed));
-        }
-
-        return Result;
-    }
-
+    
     // ----------------------------------------------------------------------
 
     private const           string   VideosFolder    = @"W:\Woowz11\Videos\Записи\YT";
@@ -1184,7 +1548,8 @@ html, body{
                 Date: DateString,
                 HasDate: HasDate,
                 SortDate: SortDateTime.Ticks,
-                IsPublished: IsPublished
+                IsPublished: IsPublished,
+                LockedReason: !IsPublished && __Locked.TryGetValue(FI.Name, out string? LR) ? LR : null
             ));
         }
 
@@ -1209,90 +1574,161 @@ html, body{
     // ----------------------------------------------------------------------
 
     private static void __StartPublish(string Name, bool IsAutoPublish, int ChunkSizeMB){
+        if(__Locked.TryGetValue(Name, out string? LockReason)){
+            __EnqueuePublishFailed(Name, LockReason, "LocalError");
+            return;
+        }
+
+        if(!__InProgress.TryAdd(Name, 0)){
+            WL.Logger.Warn($"Повторный запрос публикации [{Name}] проигнорирован: уже идёт.");
+            return;
+        }
+
         Task.Run(() => {
-            string Path = System.IO.Path.Combine(VideosFolder, Name);
-
-            YouTubeOperationResult<YouTubeVideo>? UploadResult;
-            string   CreateDate;
-            TimeSpan Duration;
-            bool     IsShorts;
-            int      NewID;
-
             try{
-                if(!File.Exists(Path)){
-                    __EnqueuePublishFailed(Name, "Файл не найден (возможно, уже опубликован, перемещён или удалён).", "NotFound");
-                    return;
-                }
-
-                FileInfo FI = new FileInfo(Path);
-                (CreateDate, bool _, DateTime _) = __GetDateInfo(FI);
-
-                VideoInfo Info = __TryGetVideoInfo(Path);
-                IsShorts = __IsShorts(Info);
-                Duration = Info.Duration ?? TimeSpan.Zero;
-
-                NewID = __GetNextID();
-                string Title = $"[{NewID}]";
-
-                int AutoPublishRunNumber = __CurrentAutoPublishRunNumber;
-
-                string Description = IsAutoPublish
-                    ? $"Опубликовано YouTubePublisher ({AutoPublishRunNumber})\n\nДата: {DateTime.Now:yyyy.MM.dd HH:mm:ss}\nФайл: {FI.Name}\nРазмер: {FI.Length} байт"
-                    : $"Опубликовано YouTubePublisher\n\nДата: {DateTime.Now:yyyy.MM.dd HH:mm:ss}\nФайл: {FI.Name}\nРазмер: {FI.Length} байт";
-
-                int ChunkSizeBytes = Math.Max(1, ChunkSizeMB) * 1024 * 1024;
-
-                UploadResult = YouTube.UploadVideo(
-                    VideoPath: Path,
-                    Title: Title,
-                    Description: Description,
-                    Privacy: YouTubePrivacy.Unpublic,
-                    OnProgress: (Sent, Total) => __EnqueueProgress(Name, Sent, Total),
-                    ChunkSizeBytes: ChunkSizeBytes
-                );
-
-                if(!UploadResult.Success){
-                    WL.Logger.Error($"Не удалось опубликовать видео [{Name}]: {UploadResult.ErrorMessage}", UploadResult.Error);
-                    __EnqueuePublishFailed(Name, UploadResult.ErrorMessage, UploadResult.FailReason.ToString());
-                    return;
-                }
+                __PublishCore(Name, IsAutoPublish, ChunkSizeMB);
             }catch(Exception e){
-                WL.Logger.Error($"Исключение при загрузке видео [{Name}] на YouTube!", e);
+                WL.Logger.Error($"Исключение при публикации [{Name}]!", e);
                 __EnqueuePublishFailed(Name, __FormatExceptionForUser(e), "Other");
-                return;
+            }finally{
+                __LastProgressAt.TryRemove(Name, out _);
+                __InProgress.TryRemove(Name, out _);
             }
-
-            string VideoID         = UploadResult.Value!.ID;
-            string RenamedFileName = $"[{NewID}] {Name}";
-            string DestinationPath = System.IO.Path.Combine(PublishedFolder, RenamedFileName);
-
-            try{
-                Directory.CreateDirectory(PublishedFolder);
-                File.Move(Path, DestinationPath, overwrite: true);
-            }catch(Exception e){
-                WL.Logger.Fatal($"ВИДЕО [{Name}] УЖЕ ЗАГРУЖЕНО НА YOUTUBE (ID: {VideoID}), но файл не удалось переместить!", e);
-                __EnqueuePublishFailed(Name,
-                    $"⚠ ВИДЕО УЖЕ ЗАГРУЖЕНО НА YOUTUBE (ID: {VideoID})!\n" +
-                    $"Не удалось переместить локальный файл в Published: {__FormatExceptionForUser(e)}\n\n" +
-                    "НЕ НАЖИМАЙТЕ «Повторить» — переместите файл в Published вручную и допишите запись в Result.js!",
-                    "LocalError");
-                return;
-            }
-
-            try{
-                __AppendResultEntry(NewID, CreateDate, VideoID, Duration, IsShorts);
-            }catch(Exception e){
-                WL.Logger.Error($"Видео [{Name}] опубликовано (ID: {VideoID}), файл перемещён, но не удалось дописать запись в Result.js!", e);
-                __EnqueuePublishFailed(Name,
-                    $"Видео успешно опубликовано (ID: {VideoID}), файл перемещён в Published, " +
-                    $"но запись в Result.js дописать не удалось: {__FormatExceptionForUser(e)}\n\nДопишите запись вручную!",
-                    "LocalError");
-                __EnqueuePublishComplete(Name, NewID);
-                return;
-            }
-
-            __EnqueuePublishComplete(Name, NewID);
         });
+    }
+
+    private static string? __CheckFileReady(string FilePath){
+        if(DateTime.Now - new FileInfo(FilePath).LastWriteTime < TimeSpan.FromSeconds(10)){
+            return "Файл изменялся меньше 10 секунд назад, возможно, запись ещё идёт. Повтори позже.";
+        }
+        try{
+            using FileStream _ = new(FilePath, FileMode.Open, FileAccess.Read, FileShare.None);
+        }catch(IOException e){
+            return "Файл занят другой программой: " + e.Message;
+        }
+        return null;
+    }
+
+    private static void __PublishCore(string Name, bool IsAutoPublish, int ChunkSizeMB){
+        string SourcePath = IOPath.Combine(VideosFolder, Name);
+
+        if(!File.Exists(SourcePath)){
+            __EnqueuePublishFailed(Name, "Файл не найден (возможно, уже опубликован, перемещён или удалён).", "NotFound");
+            return;
+        }
+
+        string? NotReady = __CheckFileReady(SourcePath);
+        if(NotReady != null){
+            __EnqueuePublishFailed(Name, NotReady, "FileBusy");
+            return;
+        }
+
+        FileInfo FI = new(SourcePath);
+        (string CreateDate, _, _) = __GetDateInfo(FI);
+
+        __EnqueueStage(Name, "Анализ видео (ffprobe)…");
+        Stopwatch SW = Stopwatch.StartNew();
+        VideoInfo Info = __TryGetVideoInfo(SourcePath);
+        WL.Logger.Info($"[{Name}] ffprobe занял {SW.ElapsedMilliseconds} мс");
+
+        bool     IsShorts = __IsShorts(Info);
+        TimeSpan Duration = Info.Duration ?? TimeSpan.Zero;
+
+        int    NewID           = __GetNextID();
+        string Title           = $"[{NewID}]";
+        string RenamedFileName = $"[{NewID}] {Name}";
+
+        // Без записи в журнал не загружаем (если упадёт, то до загрузки)
+        __Journal(new JournalEntry{ ID = NewID, Event = "Started", Name = Name, RenamedFileName = RenamedFileName });
+
+        string Description = IsAutoPublish
+            ? $"Опубликовано YouTubePublisher ({__CurrentAutoPublishRunNumber})\n\nДата: {DateTime.Now:yyyy.MM.dd HH:mm:ss}\nФайл: {FI.Name}\nРазмер: {FI.Length} байт"
+            : $"Опубликовано YouTubePublisher\n\nДата: {DateTime.Now:yyyy.MM.dd HH:mm:ss}\nФайл: {FI.Name}\nРазмер: {FI.Length} байт";
+
+        int ChunkSizeBytes = Math.Max(1, ChunkSizeMB) * 1024 * 1024;
+
+        __EnqueueStage(Name, "Подключение к YouTube…");
+        __LastProgressAt[Name] = Environment.TickCount64;
+        SW.Restart();
+        bool FirstProgress = true;
+
+        YouTubeOperationResult<YouTubeVideo> UploadResult;
+        try{
+            UploadResult = YouTube.UploadVideo(
+                VideoPath: SourcePath,
+                Title: Title,
+                Description: Description,
+                Privacy: YouTubePrivacy.Unpublic,
+                OnProgress: (Sent, Total) => {
+                    __LastProgressAt[Name] = Environment.TickCount64;
+                    if(FirstProgress){
+                        FirstProgress = false;
+                        WL.Logger.Info($"[{Name}] первый прогресс через {SW.Elapsed.TotalSeconds:F1} с ({Sent}/{Total})");
+                    }
+                    __EnqueueProgress(Name, Sent, Total);
+                },
+                ChunkSizeBytes: ChunkSizeBytes
+            );
+        }catch(Exception e){
+            __TryJournal(new JournalEntry{ ID = NewID, Event = "Failed", Name = Name, Note = e.Message });
+            WL.Logger.Error($"Исключение при загрузке [{Name}]!", e);
+            __EnqueuePublishFailed(Name, __FormatExceptionForUser(e), "Other");
+            return;
+        }finally{
+            __LastProgressAt.TryRemove(Name, out _);
+        }
+
+        if(!UploadResult.Success){
+            WL.Logger.Error($"Не удалось опубликовать [{Name}]: {UploadResult.ErrorMessage}", UploadResult.Error);
+            __TryJournal(new JournalEntry{ ID = NewID, Event = "Failed", Name = Name, Note = UploadResult.ErrorMessage });
+            __EnqueuePublishFailed(Name, UploadResult.ErrorMessage, UploadResult.FailReason.ToString());
+            return;
+        }
+
+        // ───── КРИТИЧЕСКАЯ СЕКЦИЯ: видео уже на YouTube ─────
+        Interlocked.Increment(ref __CriticalSections);
+        try{
+            string VideoID = UploadResult.Value!.ID;
+
+            JournalEntry Uploaded = new(){
+                ID = NewID, Event = "Uploaded", Name = Name, VideoID = VideoID,
+                RenamedFileName = RenamedFileName, CreateDate = CreateDate,
+                DurationSeconds = Duration.TotalSeconds, IsShorts = IsShorts
+            };
+
+            try{ __Journal(Uploaded); }
+            catch(Exception e){ WL.Logger.Fatal($"ВИДЕО ЗАГРУЖЕНО (YouTube ID: {VideoID}, файл: {Name}), но запись в журнал не удалась!", e); }
+
+            __EnqueueStage(Name, "Перемещение файла и запись результата…");
+            (bool MoveFailed, string? Problems) = __FinishPublish(Uploaded);
+
+            if(MoveFailed){
+                string Msg = __LockMessage(Uploaded);
+                __Locked[Name] = Msg;
+                __EnqueuePublishFailed(Name, Msg + "\n\n" + Problems, "LocalError");
+            }else{
+                __EnqueuePublishComplete(Name, NewID, Problems);
+            }
+        }finally{
+            Interlocked.Decrement(ref __CriticalSections);
+        }
+    }
+
+    // ----------------------------------------------------------------------
+
+    private static void __EnqueueStage(string Name, string Stage){
+        __PendingMessages.Enqueue(JsonSerializer.Serialize(new{ Type = "PublishStage", Data = new{ Name, Stage } }));
+    }
+
+    private static void __CheckStalls(){
+        long Now = Environment.TickCount64;
+        foreach(KeyValuePair<string, long> KV in __LastProgressAt){
+            long Seconds = (Now - KV.Value) / 1000;
+            if(Seconds >= 120){
+                WL.Logger.Warn($"[{KV.Key}] нет прогресса {Seconds} с");
+                __EnqueueStage(KV.Key, $"⚠ Нет прогресса уже {Seconds / 60} мин {Seconds % 60} с");
+            }
+        }
     }
 
     private static string __FormatExceptionForUser(Exception e){
@@ -1307,50 +1743,62 @@ html, body{
 
     private readonly record struct VideoInfo(TimeSpan? Duration, int? Width, int? Height);
 
-    private static VideoInfo __TryGetVideoInfo(string Path){
+    private static VideoInfo __TryGetVideoInfo(string FilePath){
         try{
-            ProcessStartInfo PSI = new ProcessStartInfo{
-                FileName               = "ffprobe",
-                Arguments              = $"-v quiet -print_format json -show_format -show_streams \"{Path}\"",
+            ProcessStartInfo PSI = new(){
+                FileName = "ffprobe",
                 RedirectStandardOutput = true,
-                UseShellExecute        = false,
-                CreateNoWindow         = true
+                RedirectStandardError  = true,
+                UseShellExecute = false,
+                CreateNoWindow  = true
             };
+            foreach(string A in new[]{ "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", FilePath }){
+                PSI.ArgumentList.Add(A);
+            }
 
-            using Process? Proc = Process.Start(PSI);
-            if(Proc == null){ throw new ExceptionWL("Не удалось запустить ffprobe!"); }
+            using Process Proc = Process.Start(PSI) ?? throw new ExceptionWL("Не удалось запустить ffprobe!");
+            Task<string> OutTask = Proc.StandardOutput.ReadToEndAsync();
+            _ = Proc.StandardError.ReadToEndAsync();
 
-            string Output = Proc.StandardOutput.ReadToEnd();
+            if(!Proc.WaitForExit(30_000)){
+                try{ Proc.Kill(true); }catch{}
+                throw new ExceptionWL("ffprobe не ответил за 30 секунд!");
+            }
             Proc.WaitForExit();
 
-            using JsonDocument Doc = JsonDocument.Parse(Output);
+            using JsonDocument Doc = JsonDocument.Parse(OutTask.GetAwaiter().GetResult());
 
             TimeSpan? Duration = null;
             if(Doc.RootElement.TryGetProperty("format", out JsonElement Format) &&
                Format.TryGetProperty("duration", out JsonElement DurationProp) &&
-               double.TryParse(DurationProp.GetString(), out double Seconds))
-            {
+               double.TryParse(DurationProp.GetString(), System.Globalization.NumberStyles.Float,
+                               System.Globalization.CultureInfo.InvariantCulture, out double Seconds)){
                 Duration = TimeSpan.FromSeconds(Seconds);
             }
 
-            int? Width  = null;
-            int? Height = null;
+            int? Width = null, Height = null;
 
             if(Doc.RootElement.TryGetProperty("streams", out JsonElement Streams)){
                 foreach(JsonElement Stream in Streams.EnumerateArray()){
-                    if(!Stream.TryGetProperty("codec_type", out JsonElement CodecType) || CodecType.GetString() != "video"){
-                        continue;
-                    }
+                    if(!Stream.TryGetProperty("codec_type", out JsonElement CodecType) || CodecType.GetString() != "video"){ continue; }
 
-                    if(Stream.TryGetProperty("width", out JsonElement W)){ Width = W.GetInt32(); }
+                    if(Stream.TryGetProperty("width",  out JsonElement W)){ Width  = W.GetInt32(); }
                     if(Stream.TryGetProperty("height", out JsonElement H)){ Height = H.GetInt32(); }
+
+                    int Rotation = 0;
+                    if(Stream.TryGetProperty("side_data_list", out JsonElement SideData)){
+                        foreach(JsonElement D in SideData.EnumerateArray()){
+                            if(D.TryGetProperty("rotation", out JsonElement R) && R.TryGetInt32(out int RV)){ Rotation = RV; }
+                        }
+                    }
+                    if(Math.Abs(Rotation) % 180 == 90){ (Width, Height) = (Height, Width); }
                     break;
                 }
             }
 
             return new VideoInfo(Duration, Width, Height);
         }catch(Exception e){
-            WL.Logger.Warn($"Не удалось определить параметры видео через ffprobe!\nФайл: {Path}", e);
+            WL.Logger.Warn($"Не удалось определить параметры видео через ffprobe!\nФайл: {FilePath}", e);
             return new VideoInfo(null, null, null);
         }
     }
@@ -1371,12 +1819,10 @@ html, body{
         __PendingMessages.Enqueue(JSON);
     }
 
-    private static void __EnqueuePublishComplete(string Name, int MyID){
+    private static void __EnqueuePublishComplete(string Name, int MyID, string? Warning = null){
         Interlocked.Increment(ref __PublishedVideos);
         __UpdateWindowTitle();
-
-        string JSON = JsonSerializer.Serialize(new{ Type = "PublishComplete", Data = new{ Name, MyID } });
-        __PendingMessages.Enqueue(JSON);
+        __PendingMessages.Enqueue(JsonSerializer.Serialize(new{ Type = "PublishComplete", Data = new{ Name, MyID, Warning } }));
     }
 
     private static void __EnqueuePublishFailed(string Name, string Reason, string ReasonCode = "Other"){
@@ -1440,4 +1886,4 @@ html, body{
     }
 }
 
-public record VideoFileInfo(string Name, long SizeBytes, string? Date, bool HasDate, long SortDate, bool IsPublished);
+public record VideoFileInfo(string Name, long SizeBytes, string? Date, bool HasDate, long SortDate, bool IsPublished, string? LockedReason);

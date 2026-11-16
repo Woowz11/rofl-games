@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using WLO.Math;
 
@@ -51,7 +52,7 @@ public static class Bootstrap{
         try{
             WL.Core.Start(Args);
 
-            __SetInternetEnabled(true);
+            __PrepareNetwork();
 
             __StartCommandWorker();
 
@@ -263,163 +264,103 @@ public static class Bootstrap{
     }
 
     // ----------------------------------------------------------------------
-    // Сетевые адаптеры (через netsh, встроен в Windows)
+    // Сетевые адаптеры
+    //
+    // Трафик блокируется правилами брандмауэра, привязанными к адаптеру.
+    // Сам адаптер остаётся включённым, поэтому линк не перезапускается
+    // и переключение занимает доли секунды вместо 15-30 секунд.
 
-    // Имена адаптеров из ncpa.cpl, точно как в Windows (регистр и пробелы важны).
+    // Адаптеры, трафик которых блокируется. Имена точно как в ncpa.cpl.
     private static readonly string[] AdapterNames = ["Ethernet"];
 
-    // Список отключённых адаптеров. Пишется до отключения, чтобы восстановить их после сбоя.
+    private const string __RuleNameIn  = "LagSwitch Block In";
+    private const string __RuleNameOut = "LagSwitch Block Out";
+
+    // Файл от старой версии (отключение адаптера). Если приложение упало в том режиме, адаптер нужно включить.
     private static readonly string __AdapterFile = Path.Combine(AppContext.BaseDirectory, "disabled_adapters.txt");
 
-    private const int StatusTimeoutMs = 15_000;
-
     // Вызывать только под __Sync (или при старте до запуска потоков).
-    private static bool __SetInternetEnabled(bool Enabled) => Enabled ? __RestoreAdapters() : __DisableAdapters();
+    private static bool __SetInternetEnabled(bool Enabled) => Enabled ? __Unblock() : __Block();
 
-    private static bool __DisableAdapters(){
-        __LogAdapters("Перед отключением");
+    // Вызывается один раз при старте: включает адаптеры от старой версии и заново создаёт правила выключенными.
+    private static void __PrepareNetwork(){
+        if(File.Exists(__AdapterFile)){
+            List<string> Old = File.ReadAllLines(__AdapterFile)
+                                   .Select(N => N.Trim())
+                                   .Where(N => N.Length > 0)
+                                   .ToList();
 
-        List<string> ToDisable = [];
+            WL.Logger.Info($"Найден файл прошлого отключения, включаю адаптеры: {string.Join(", ", Old)}");
 
-        foreach(string Name in AdapterNames){
-            NetworkInterface? NI = __FindAdapter(Name);
-            if(NI == null){
-                WL.Logger.Error($"Адаптер '{Name}' не найден. Проверьте AdapterNames.");
-                return false;
+            bool Ok = true;
+            foreach(string Name in Old){
+                Ok &= __EnableAdapter(Name);
             }
 
-            // Уже выключенные адаптеры не трогаем, иначе при восстановлении включим лишнее.
-            if(NI.OperationalStatus != OperationalStatus.Up){
-                WL.Logger.Info($"Адаптер '{Name}' пропущен: статус {NI.OperationalStatus}.");
-                continue;
-            }
-
-            ToDisable.Add(Name);
+            if(Ok){ File.Delete(__AdapterFile); }
         }
 
-        // Нечего отключать — это ошибка, а не успех. Иначе состояние станет ВКЛ без реального лага.
-        if(ToDisable.Count == 0){
-            WL.Logger.Error("Нет активных адаптеров из AdapterNames. Лаг не включён.");
-            return false;
+        __RecreateRules();
+    }
+
+    // ---
+    private static bool __EnableAdapter(string Name) =>
+        __Run("netsh", $"interface set interface name=\"{Name}\" admin=enabled", $"Адаптер '{Name}'", out _);
+
+    // ---
+    // Удаляем старые правила LagSwitch (например, после сбоя) и создаём новые выключенными.
+    private static bool __RecreateRules(){
+        string Interfaces = string.Join(",", AdapterNames.Select(N => $"'{N}'"));
+
+        string Script =
+            "Remove-NetFirewallRule -DisplayName 'LagSwitch Block*' -ErrorAction SilentlyContinue;" +
+            $"New-NetFirewallRule -DisplayName '{__RuleNameIn}' -Direction Inbound -Action Block -InterfaceAlias {Interfaces} -Enabled False | Out-Null;" +
+            $"New-NetFirewallRule -DisplayName '{__RuleNameOut}' -Direction Outbound -Action Block -InterfaceAlias {Interfaces} -Enabled False | Out-Null;";
+
+        // EncodedCommand избавляет от проблем с кавычками в аргументах.
+        string Encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(Script));
+
+        bool Ok = __Run("powershell", $"-NoProfile -ExecutionPolicy Bypass -EncodedCommand {Encoded}", "Правила брандмауэра", out _);
+        if(Ok){ WL.Logger.Info("Правила брандмауэра созданы (выключены)."); }
+
+        return Ok;
+    }
+
+    // ---
+    private static bool __SetRules(bool Enabled){
+        string State = Enabled ? "yes" : "no";
+        bool   Ok    = true;
+
+        foreach(string Rule in new[]{ __RuleNameIn, __RuleNameOut }){
+            Ok &= __Run("netsh", $"advfirewall firewall set rule name=\"{Rule}\" new enable={State}", $"Правило '{Rule}'", out _);
         }
 
-        // Файл пишем до отключения: если приложение упадёт, при следующем запуске адаптеры включатся.
-        File.WriteAllLines(__AdapterFile, ToDisable);
-        WL.Logger.Info($"Отключаю адаптеры: {string.Join(", ", ToDisable)}");
+        return Ok;
+    }
 
-        foreach(string Name in ToDisable){
-            bool Ok = __RunNetsh(Name, enable: false) && __WaitForStatus(Name, OperationalStatus.Down, StatusTimeoutMs);
-            if(!Ok){
-                WL.Logger.Error($"Не удалось отключить '{Name}'. Откатываю все адаптеры из списка.");
+    // ---
+    private static bool __Block(){
+        Stopwatch Watch = Stopwatch.StartNew();
 
-                foreach(string Rollback in ToDisable){
-                    __RunNetsh(Rollback, enable: true);
-                }
+        if(!__SetRules(true)){ return false; }
 
-                File.Delete(__AdapterFile);
-                __LogAdapters("После отката");
-                return false;
-            }
-        }
-
-        __LogAdapters("После отключения");
+        WL.Logger.Info($"  трафик {string.Join(", ", AdapterNames)} заблокирован за {Watch.ElapsedMilliseconds} мс");
+        __LogAdapters("После блокировки");
         return true;
     }
 
-    private static bool __RestoreAdapters(){
-        if(!File.Exists(__AdapterFile)){ return true; }
+    // ---
+    private static bool __Unblock(){
+        Stopwatch Watch = Stopwatch.StartNew();
 
-        List<string> Names = File.ReadAllLines(__AdapterFile)
-             .Select(N => N.Trim())
-             .Where(N => N.Length > 0)
-             .ToList();
+        if(!__SetRules(false)){ return false; }
 
-        WL.Logger.Info($"Включаю адаптеры: {string.Join(", ", Names)}");
-
-        bool Ok = true;
-        foreach(string Name in Names){
-            if(!__RunNetsh(Name, enable: true)){
-                Ok = false;
-                continue;
-            }
-
-            if(__WaitForLinkUp(Name, 10_000)){
-                __RenewDhcp(Name);
-            }
-            else{
-                Ok = false;
-            }
-        }
-
-        if(!Ok){
-            WL.Logger.Error("Интернет не восстановлен: линк не поднялся. Нажмите кнопку ещё раз или запустите RestoreInternet.bat.");
-            return false;
-        }
-
-        File.Delete(__AdapterFile);
-        __LogAdapters("После включения");
+        WL.Logger.Info($"  трафик {string.Join(", ", AdapterNames)} разблокирован за {Watch.ElapsedMilliseconds} мс");
+        __LogAdapters("После разблокировки");
         return true;
     }
 
-    private static bool __WaitForLinkUp(string Name, int TimeoutMs){
-        Stopwatch Watch = Stopwatch.StartNew();
-
-        while(Watch.ElapsedMilliseconds < TimeoutMs){
-            NetworkInterface? NI = __FindAdapter(Name);
-            if(NI != null && NI.OperationalStatus == OperationalStatus.Up){
-                WL.Logger.Info($"  '{Name}' → Up за {Watch.ElapsedMilliseconds} мс");
-                return true;
-            }
-
-            Thread.Sleep(25);
-        }
-
-        WL.Logger.Error($"  '{Name}': линк не поднялся за {TimeoutMs} мс.");
-        return false;
-    }
-
-    private static void __RenewDhcp(string Name){
-        Stopwatch Watch = Stopwatch.StartNew();
-
-        ProcessStartInfo PSI = new ProcessStartInfo{
-            FileName               = "ipconfig",
-            Arguments              = $"/renew \"{Name}\"",
-            UseShellExecute        = false,
-            CreateNoWindow         = true,
-            RedirectStandardOutput = true
-        };
-
-        try{
-            using Process? P = Process.Start(PSI);
-            if(P == null){
-                WL.Logger.Error("Не удалось запустить ipconfig!");
-                return;
-            }
-
-            Task<string> OutputTask = P.StandardOutput.ReadToEndAsync();
-
-            if(!P.WaitForExit(15_000)){
-                P.Kill();
-                WL.Logger.Error($"ipconfig /renew '{Name}' не ответил за 15 секунд.");
-                return;
-            }
-
-            string Output = OutputTask.Result.Trim();
-
-            if(P.ExitCode != 0){
-                WL.Logger.Error($"ipconfig /renew '{Name}' → ОШИБКА, код {P.ExitCode}: {Output}");
-                return;
-            }
-
-            WL.Logger.Info($"  ipconfig /renew '{Name}' → OK за {Watch.ElapsedMilliseconds} мс");
-        }catch(Exception e){
-            WL.Logger.Error($"Ошибка запуска ipconfig для адаптера '{Name}'!", e);
-        }
-    }
-
-    private static NetworkInterface? __FindAdapter(string Name) =>
-        NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(N => N.Name == Name);
-
+    // ---
     private static void __LogAdapters(string Title){
         WL.Logger.Info($"[Адаптеры] {Title}:");
 
@@ -429,70 +370,47 @@ public static class Bootstrap{
     }
 
     // ---
-    private static bool __WaitForStatus(string Name, OperationalStatus Expected, int TimeoutMs){
-        var Watch = Stopwatch.StartNew();
-        string Last = "";
-
-        while(Watch.ElapsedMilliseconds < TimeoutMs){
-            var Nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n => n.Name == Name);
-
-            if(Nic == null){
-                if(Expected == OperationalStatus.Down){
-                    WL.Logger.Info($"  '{Name}' → отключён (нет в списке интерфейсов) за {Watch.ElapsedMilliseconds} мс");
-                    return true;
-                }
-                Last = "нет адаптера";
-            }
-            else{
-                Last = Nic.OperationalStatus.ToString();
-                if(Nic.OperationalStatus == Expected){
-                    WL.Logger.Info($"  '{Name}' → {Expected} за {Watch.ElapsedMilliseconds} мс");
-                    return true;
-                }
-            }
-
-            Thread.Sleep(25);
-        }
-
-        WL.Logger.Error($"  '{Name}': за {TimeoutMs} мс статус не стал {Expected} (сейчас: {Last}).");
-        return false;
-    }
-
-    private static bool __RunNetsh(string Name, bool enable){
-        string Action = enable ? "enabled" : "disabled";
-
-        ProcessStartInfo PSI = new ProcessStartInfo{
-            FileName        = "netsh",
-            Arguments       = $"interface set interface name=\"{Name}\" admin={Action}",
-            UseShellExecute = false,
-            CreateNoWindow  = true
-        };
+    // Запуск внешней программы. Возвращает true при коде 0. Вывод программы попадает в Output.
+    private static bool __Run(string FileName, string Arguments, string Title, out string Output){
+        Output = "";
 
         try{
+            ProcessStartInfo PSI = new ProcessStartInfo{
+                FileName               = FileName,
+                Arguments              = Arguments,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true
+            };
+
             using Process? P = Process.Start(PSI);
             if(P == null){
-                WL.Logger.Error("Не удалось запустить netsh!");
+                WL.Logger.Error($"{Title}: не удалось запустить {FileName}!");
                 return false;
             }
+
+            Task<string> OutTask = P.StandardOutput.ReadToEndAsync();
+            Task<string> ErrTask = P.StandardError.ReadToEndAsync();
 
             if(!P.WaitForExit(10_000)){
                 P.Kill();
-                WL.Logger.Error($"netsh не ответил за 10 секунд (адаптер '{Name}').");
+                WL.Logger.Error($"{Title}: {FileName} не ответил за 10 секунд.");
                 return false;
             }
+
+            Output = $"{OutTask.Result} {ErrTask.Result}".Trim();
 
             if(P.ExitCode != 0){
-                WL.Logger.Error($"netsh: '{Name}' admin={Action} → ОШИБКА, код {P.ExitCode}. Проверьте, что приложение запущено от администратора.");
+                WL.Logger.Error($"{Title}: ОШИБКА, код {P.ExitCode}. {Output}");
                 return false;
             }
 
-            WL.Logger.Info($"  netsh: '{Name}' admin={Action} → OK");
+            return true;
         }catch(Exception e){
-            WL.Logger.Error($"Ошибка запуска netsh для адаптера '{Name}'!", e);
+            WL.Logger.Error($"{Title}: ошибка запуска {FileName}!", e);
             return false;
         }
-
-        return true;
     }
 
     // ----------------------------------------------------------------------

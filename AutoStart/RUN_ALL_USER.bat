@@ -1,7 +1,7 @@
 @echo off
 
 :: === Патчинг Vencord (dev-сборка) ===
-call "W:\Other\rofl-games\Vencord\BUILD.bat"
+call "W:\Programs\Vencord\INJECT.bat"
 timeout /t 2 /nobreak >nul
 
 :: === Запуск Discord ===

@@ -17,10 +17,16 @@ echo  Восстановление интернета
 echo ==============================================
 echo.
 
-:: Адаптеры, которые LagSwitch может отключить (должны совпадать с AdapterNames в Bootstrap.cs)
+:: Удаляем правила брандмауэра LagSwitch (блокировка трафика)
+netsh advfirewall firewall delete rule name="LagSwitch Block In"  >nul 2>&1
+netsh advfirewall firewall delete rule name="LagSwitch Block Out" >nul 2>&1
+echo [OK]     правила LagSwitch удалены (если были)
+echo.
+
+:: Адаптер на случай, если его отключила старая версия
 call :Enable "Ethernet"
 
-:: Адаптеры, которые LagSwitch записал перед отключением (если приложение упало)
+:: Адаптеры из файла старой версии
 if exist "disabled_adapters.txt" (
     echo.
     echo Найден disabled_adapters.txt, включаю записанные адаптеры...
@@ -29,7 +35,7 @@ if exist "disabled_adapters.txt" (
 )
 
 echo.
-echo Готово. Если интернет не появился, проверьте список адаптеров ниже:
+echo Готово. Если интернет не появился, подождите 20-30 секунд или переподключите кабель.
 echo.
 netsh interface show interface
 echo.
