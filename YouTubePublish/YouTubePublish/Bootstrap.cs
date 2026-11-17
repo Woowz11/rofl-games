@@ -10,9 +10,9 @@ using WLO.Math;
 namespace YouTubePublish;
 
 public static class Bootstrap{
-    private static WLO.Web.WebView2 Web     = null!;
-    private static YouTube          YouTube = null!;
-    private static WLO.Window.GLFW  Window  = null!;
+    private static          WLO.Web.WebView2 Web     = null!;
+    private static volatile YouTube?         YouTube = null;
+    private static          WLO.Window.GLFW  Window  = null!;
 
     private static readonly ConcurrentQueue<string> __PendingMessages = [];
 
@@ -35,8 +35,7 @@ public static class Bootstrap{
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    private const string JournalFilePath = @"W:\Woowz11\Videos\Записи\YT\!Journal.jsonl";
-    private const string BackupFolder    = @"W:\Woowz11\Videos\Записи\YT\!Backups";
+    private const string JournalFilePath = @"W:\Woowz11\Videos\Записи\YT\!Journal.json";
 
     [STAThread]
     public static int Main(string[] Args){
@@ -93,10 +92,17 @@ function FollowVideo(Name){
 
 // ----------------------------------------------------------------------
 
-function ShowError(Title, Details){
+const ErrorBox = document.getElementById("ErrorBox");
+
+function ShowMessage(Kind, Title, Details){
+    ErrorBox.className = Kind;   // "Error" (красный по умолчанию), "Success", "Warning", "Info"
     ErrorTitle.textContent = Title;
     ErrorDetails.textContent = Details ?? "";
     ErrorOverlay.style.display = "flex";
+}
+
+function ShowError(Title, Details){
+    ShowMessage("Error", Title, Details);
 }
 
 document.getElementById("ErrorClose").onclick = () => {
@@ -365,14 +371,16 @@ let AutoPublishActive   = false;
 let AutoPublishQueue    = [];
 let AutoPublishInFlight = new Set();
 
-const NoRetryCodes   = new Set(["NotFound", "LocalError", "FileBusy", "QuotaExceeded", "UploadLimitExceeded"]);
+const NoRetryCodes   = new Set(["NotFound", "LocalError", "FileBusy", "NotConnected", "QuotaExceeded", "UploadLimitExceeded"]);
 const MaxAutoRetries = 2;
 let   AutoStats      = { Done: 0, Problems: [] };
 
-function ShowAutoSummary(Title){
+function ShowAutoSummary(Title, ForceKind){
     const Lines = [`Опубликовано: ${AutoStats.Done}`, `Проблем: ${AutoStats.Problems.length}`];
     if(AutoStats.Problems.length > 0){ Lines.push("", ...AutoStats.Problems); }
-    ShowError(Title, Lines.join("\n"));
+
+    const Kind = ForceKind ?? (AutoStats.Problems.length === 0 ? "Success" : "Warning");
+    ShowMessage(Kind, Title, Lines.join("\n"));
 }
 
 function GetConcurrency(){
@@ -404,7 +412,7 @@ function StopAutoPublish(Reason){
     UpdateAutoPublishButtonUI();
 
     if(Reason){
-        ShowError("Автопубликация остановлена", Reason);
+        ShowMessage("Info", "Автопубликация остановлена", Reason);
     }
 }
 
@@ -421,7 +429,7 @@ function StartAutoPublish(){
         !V.IsPublished && !PublishingNames.has(V.Name) && !V.LockedReason && !LockedByName.has(V.Name));
 
     if(Candidates.length === 0){
-        ShowError("Автопубликация", "Нет видео для публикации.");
+        ShowMessage("Info", "Автопубликация", "Нет видео для публикации.");
         return;
     }
 
@@ -440,13 +448,64 @@ function StartAutoPublish(){
     }
 }
 
+let LastOrphansJson = "";
+
+function RenderOrphans(List){
+    const Json = JSON.stringify(List ?? []);
+    if(Json === LastOrphansJson){ return; }   // не перерисовываем зря, иначе список прыгает
+    LastOrphansJson = Json;
+
+    const Box = document.getElementById("Orphans");
+    const Body = document.getElementById("OrphansBody");
+    const Btn = document.getElementById("OrphansButton");
+    Body.textContent = "";
+    if(!List || List.length === 0){
+        Box.classList.remove("Has", "Open");
+        return;
+    }
+    Box.classList.add("Has");
+    Btn.textContent = "⚠ Проверить на YouTube (" + List.length + ")";
+
+    const Head = document.createElement("div");
+    Head.textContent = "Эти загрузки оборвались. На YouTube мог остаться недозагруженный файл. Удалите его в Studio вручную.";
+    Head.style.marginBottom = "8px";
+    Body.appendChild(Head);
+
+    const Studio = document.createElement("button");
+    Studio.textContent = "Открыть YouTube Studio";
+    Studio.onclick = () => SendToHost("OpenStudio", "");
+    Body.appendChild(Studio);
+
+    for(const O of List){
+        const Item = document.createElement("div");
+        Item.className = "OrphanItem";
+        const Title = document.createElement("div");
+        Title.textContent = "ID " + O.ID + (O.RetriedAs ? " → загружено заново как " + O.RetriedAs : " → не перезагружено");
+        const Info = document.createElement("small");
+        Info.textContent = O.FileName + " • " + O.FailedAt + (O.Reason ? " • " + O.Reason : "");
+        const Done = document.createElement("button");
+        Done.textContent = "Удалил, убрать из списка";
+        Done.onclick = () => SendToHost("DismissOrphan", O.ID + "|" + O.FailedAt);
+        Item.append(Title, Info, Done);
+        Body.appendChild(Item);
+    }
+}
+
+document.getElementById("OrphansButton").onclick = () => {
+    document.getElementById("Orphans").classList.toggle("Open");
+};
+SendToHost("GetOrphans", "");
+setInterval(() => SendToHost("GetOrphans", ""), 15000);
+
 function AutoPublishPumpNext(){
     if(!AutoPublishActive){ return; }
 
     if(AutoPublishQueue.length === 0){
         if(AutoPublishInFlight.size === 0){
             StopAutoPublish(null);
-            ShowAutoSummary("Автопубликация завершена");
+            ShowAutoSummary(AutoStats.Problems.length === 0
+            ? "✅ Автопубликация завершена"
+            : "⚠ Автопубликация завершена с проблемами");
         }
         return;
     }
@@ -480,7 +539,7 @@ function MarkPublished(Name, MyID, Warning){
     if(Warning){
         WarningByName.set(Name, Warning);
         if(WasAuto){ AutoStats.Problems.push(`${Name}: ${Warning}`); }
-        else{ ShowError("Видео опубликовано, но есть предупреждение", Warning); }
+        else{ ShowMessage("Warning", "Видео опубликовано, но есть предупреждение", Warning); }
     }
     if(WasAuto){ AutoStats.Done++; }
 
@@ -522,7 +581,7 @@ function ResetCard(Name, Reason, FailReasonCode){
 
         if(IsQuotaError){
             StopAutoPublish(null);
-            ShowAutoSummary("Автопубликация остановлена: превышена квота YouTube API");
+            ShowAutoSummary("Автопубликация остановлена: превышена квота YouTube API", "Error");
         }else if(AutoPublishActive){
             AutoPublishPumpNext();   // без модалки: ошибка видна на карточке и войдёт в сводку
         }
@@ -589,8 +648,10 @@ if(window.chrome?.webview){
             MarkPublished(Message.Data.Name, Message.Data.MyID, Message.Data.Warning);
         }else if(Message.Type === "PublishFailed"){
             ResetCard(Message.Data.Name, Message.Data.Reason, Message.Data.FailReasonCode);
+        }else if(Message.Type === "OrphanList"){
+            RenderOrphans(Message.Data);
         }else if(Message.Type === "Error"){
-            ShowError(Message.Data?.Title ?? "Ошибка", Message.Data?.Details ?? "");
+            ShowMessage(Message.Data?.Kind ?? "Error", Message.Data?.Title ?? "Ошибка", Message.Data?.Details ?? "");
         }
     });
 
@@ -991,6 +1052,32 @@ html, body{
     margin: 4px 4px 0 4px;
     cursor: pointer;
 }
+
+#ErrorBox.Success{ background: #10241a; border-color: #2e7d32; }
+#ErrorBox.Success #ErrorTitle{ color: #66bb6a; }
+#ErrorBox.Success #ErrorDetails{ color: #b5d9b8; }
+#ErrorBox.Success button{ background: #2e7d32; }
+#ErrorBox.Success button:hover{ background: #388e3c; }
+
+#ErrorBox.Warning{ background: #2a2210; border-color: #ff8800; }
+#ErrorBox.Warning #ErrorTitle{ color: #ffb74d; }
+#ErrorBox.Warning #ErrorDetails{ color: #e0cfa8; }
+#ErrorBox.Warning button{ background: #e67e00; }
+#ErrorBox.Warning button:hover{ background: #ff8f00; }
+
+#ErrorBox.Info{ background: #101c2a; border-color: #2196f3; }
+#ErrorBox.Info #ErrorTitle{ color: #64b5f6; }
+#ErrorBox.Info #ErrorDetails{ color: #b0c8e0; }
+#ErrorBox.Info button{ background: #1976d2; }
+#ErrorBox.Info button:hover{ background: #2196f3; }
+
+#Orphans{position:fixed;right:12px;bottom:12px;z-index:50;font:13px sans-serif;display:none}
+#Orphans.Has{display:block}
+#OrphansButton{background:#e67e22;color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer}
+#OrphansBody{display:none;position:absolute;right:0;bottom:40px;width:440px;max-height:50vh;overflow:auto;background:#222;color:#eee;border:1px solid #e67e22;border-radius:8px;padding:10px}
+#Orphans.Open #OrphansBody{display:block}
+.OrphanItem{border-bottom:1px solid #444;padding:6px 0}
+.OrphanItem small{display:block;color:#aaa;word-break:break-all}
 </style>
 
 </head>
@@ -1059,6 +1146,11 @@ html, body{
     </div>
 </div>
 
+<div id="Orphans">
+    <div id="OrphansBody"></div>
+    <button id="OrphansButton"></button>
+</div>
+
 <script>
 {{JS}}
 </script>
@@ -1071,8 +1163,10 @@ html, body{
 
             __LoadConfig();
             __RecoverFromJournal();
+            __SyncOrphans();
+            __CompactJournal();
 
-            YouTube = new YouTube(File.ReadAllText(@"W:\Other\rofl-games\YouTubePublish\client_secret.json"), @"W:\Other\rofl-games\YouTubePublish\UserLogin", "YoutubePublisher");
+            Task.Run(__ConnectYouTube);
 
             __StallTimer = new System.Threading.Timer(_ => __CheckStalls(), null, 10_000, 10_000);
 
@@ -1136,7 +1230,21 @@ html, body{
                     __OpenFolder(Kind == "Published" ? PublishedFolder : VideosFolder);
                     break;
                 }
+                
+                case "GetOrphans":
+                    Task.Run(__SendOrphans);
+                    break;
 
+                case "DismissOrphan":{
+                    string OrphanData = Doc.RootElement.GetProperty("Data").GetString() ?? "";
+                    Task.Run(() => __DismissOrphan(OrphanData));
+                    break;
+                }
+
+                case "OpenStudio":
+                    Process.Start(new ProcessStartInfo("https://studio.youtube.com/"){ UseShellExecute = true });
+                    break;
+                
                 case "PublishRequest":{
                     JsonElement DataEl = Doc.RootElement.GetProperty("Data");
                     string Name = DataEl.GetProperty("Name").GetString() ?? "";
@@ -1185,6 +1293,44 @@ html, body{
             });
         }catch(Exception e){
             __SendError($"Не удалось открыть папку!\nПуть: {Folder}", e);
+        }
+    }
+    
+    private static bool __IsNetworkError(Exception e){
+        for(Exception? Cur = e; Cur != null; Cur = Cur.InnerException){
+            if(Cur is HttpRequestException or IOException or System.Net.Sockets.SocketException or TaskCanceledException){ return true; }
+        }
+        return false;
+    }
+
+    private static void __ConnectYouTube(){
+        const int MaxAttempts = 6;
+
+        for(int Attempt = 1; Attempt <= MaxAttempts; Attempt++){
+            try{
+                YouTube = new YouTube(
+                    File.ReadAllText(@"W:\Other\rofl-games\YouTubePublish\client_secret.json"),
+                    @"W:\Other\rofl-games\YouTubePublish\UserLogin",
+                    "YoutubePublisher");
+
+                WL.Logger.Info("YouTube API подключён.");
+                return;
+            }catch(Exception e){
+                WL.Logger.Error($"Подключение к YouTube, попытка {Attempt}/{MaxAttempts}", e);
+
+                if(!__IsNetworkError(e) || Attempt == MaxAttempts){
+                    __PendingMessages.Enqueue(JsonSerializer.Serialize(new{
+                        Type = "Error",
+                        Data = new{
+                            Title = "Не удалось подключиться к YouTube API",
+                            Details = __FormatExceptionForUser(e) + "\n\nПерезапусти программу или проверь интернет/VPN."
+                        }
+                    }));
+                    return;
+                }
+
+                Thread.Sleep(TimeSpan.FromSeconds(5 * Attempt));
+            }
         }
     }
 
@@ -1238,22 +1384,6 @@ html, body{
         File.WriteAllText(Temp, Content);
         if(File.Exists(FilePath)){ File.Replace(Temp, FilePath, null); }
         else{ File.Move(Temp, FilePath); }
-    }
-
-    private static void __BackupFile(string FilePath){
-        try{
-            if(!File.Exists(FilePath)){ return; }
-            Directory.CreateDirectory(BackupFolder);
-            
-            string BaseName = IOPath.GetFileName(FilePath);
-            File.Copy(FilePath, IOPath.Combine(BackupFolder, $"{BaseName}.{DateTime.Now:yyyyMMdd_HHmmss_fff}.bak"), overwrite: false);
-
-            foreach(FileInfo Old in new DirectoryInfo(BackupFolder).GetFiles($"{BaseName}.*.bak").OrderByDescending(F => F.Name).Skip(100)){
-                Old.Delete();
-            }
-        }catch(Exception e){
-            WL.Logger.Warn($"Не удалось сделать резервную копию {FilePath}", e);
-        }
     }
 
     private static string __MakeUniquePath(string FilePath){
@@ -1315,6 +1445,31 @@ html, body{
             }
         }
         return Result;
+    }
+    
+    private static void __CompactJournal(){
+        try{
+            lock(__JournalLock){
+                List<JournalEntry> All = __ReadJournal();
+                if(All.Count <= 1000){ return; }
+
+                List<IGrouping<int, JournalEntry>> Groups = All.GroupBy(E => E.ID).OrderBy(G => G.Key).ToList();
+                int KeepLastCount = 200;
+
+                List<JournalEntry> Keep = Groups
+                      .Where((G, Index) => !G.Any(E => E.Event is "Recorded" or "Failed")   // не завершено
+                                           || Index >= Groups.Count - KeepLastCount)           // или недавнее
+                      .SelectMany(G => G)
+                      .ToList();
+
+                string Content = string.Join("\n", Keep.Select(E => JsonSerializer.Serialize(E, __JournalJson))) + "\n";
+                __WriteAllTextAtomic(JournalFilePath, Content);
+
+                WL.Logger.Info($"Журнал сокращён: {All.Count} → {Keep.Count} строк.");
+            }
+        }catch(Exception e){
+            WL.Logger.Warn("Не удалось сократить журнал (это не критично).", e);
+        }
     }
 
     // ----------------------------------------------------------------------
@@ -1378,7 +1533,17 @@ html, body{
 
         foreach(IGrouping<int, JournalEntry> G in All.GroupBy(E => E.ID)){
             List<JournalEntry> Events = G.ToList();
-            if(Events.Any(E => E.Event is "Recorded" or "Failed")){ continue; }
+            if(Events.Any(E => E.Event == "Failed")){ continue; }
+
+            if(Events.Any(E => E.Event == "Recorded")){
+                // Запись уже сделана, но файл мог остаться на месте (не удалось переместить)
+                JournalEntry? Done = Events.FirstOrDefault(E => E.Event == "Uploaded");
+                if(Done != null && !Events.Any(E => E.Event == "Moved") && File.Exists(IOPath.Combine(VideosFolder, Done.Name))){
+                    (bool MoveFailed, _) = __FinishPublish(Done);
+                    if(MoveFailed){ __Locked[Done.Name] = __LockMessage(Done); }
+                }
+                continue;
+            }
 
             JournalEntry? Up = Events.FirstOrDefault(E => E.Event == "Uploaded");
 
@@ -1407,7 +1572,7 @@ html, body{
 
         Web.PostMessage(JsonSerializer.Serialize(new{
             Type = "Error",
-            Data = new{ Title = "Восстановление после прошлого запуска", Details = string.Join("\n\n", Lines) }
+            Data = new{ Kind = "Warning", Title = "Восстановление после прошлого запуска", Details = string.Join("\n\n", Lines) }
         }));
     }
 
@@ -1420,6 +1585,77 @@ html, body{
             : Duration.ToString(@"mm\:ss");
     }
 
+    private sealed class OrphanEntry {
+        public int ID { get; set; }
+        public string FileName { get; set; } = "";
+        public string FailedAt { get; set; } = "";
+        public string Reason { get; set; } = "";
+        public int? RetriedAs { get; set; }
+        public bool Dismissed { get; set; }
+    }
+
+    private static readonly object __OrphanLock = new();
+    private static string OrphansFilePath => IOPath.Combine(VideosFolder, "!Orphans.json");
+
+    private static List<OrphanEntry> __SyncOrphans(Action<List<OrphanEntry>>? Modify = null){
+        lock(__OrphanLock){
+            List<OrphanEntry> Items = [];
+            string OldJson = "";
+            try{
+                if(File.Exists(OrphansFilePath)){
+                    OldJson = File.ReadAllText(OrphansFilePath);
+                    Items = JsonSerializer.Deserialize<List<OrphanEntry>>(OldJson) ?? [];
+                }
+            }catch{ Items = []; }
+
+            List<JournalEntry> Journal;
+            lock(__JournalLock){ Journal = __ReadJournal(); }
+
+            foreach(JournalEntry F in Journal.Where(E => E.Event == "Failed")){
+                if(Items.Any(O => O.ID == F.ID && O.FailedAt == F.Time)){ continue; }
+                Items.Add(new OrphanEntry{ ID = F.ID, FileName = F.Name, FailedAt = F.Time, Reason = F.Note ?? "" });
+            }
+
+            foreach(OrphanEntry O in Items.Where(O => O.RetriedAs == null)){
+                JournalEntry? R = Journal.FirstOrDefault(E => E.Event == "Recorded" && E.Name == O.FileName && E.ID != O.ID);
+                if(R != null){ O.RetriedAs = R.ID; }
+            }
+
+            Modify?.Invoke(Items);
+
+            string NewJson = JsonSerializer.Serialize(Items, new JsonSerializerOptions{ WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+            if(NewJson != OldJson){ __WriteAllTextAtomic(OrphansFilePath, NewJson); }  // не пишем файл каждые 15 с зря
+            return Items;
+        }
+    }
+
+    private static void __SendOrphans(){
+        try{
+            var Visible = __SyncOrphans()
+                .Where(O => !O.Dismissed)
+                .Select(O => new { O.ID, O.FileName, O.FailedAt, O.Reason, O.RetriedAs })
+                .ToList();
+            __SendToJS("OrphanList", Visible);
+        }catch(Exception Ex){
+            // список вспомогательный, не должен ломать публикацию
+            WL.Logger.Error($"Orphans: {Ex.Message}");
+        }
+    }
+    
+    private static void __SendToJS(string Type, object Data){
+        __PendingMessages.Enqueue(JsonSerializer.Serialize(new{ Type, Data }));
+    }
+
+    private static void __DismissOrphan(string Data){
+        int Sep = Data.IndexOf('|');
+        if(Sep < 0 || !int.TryParse(Data[..Sep], out int ID)){ return; }
+        string At = Data[(Sep + 1)..];
+        __SyncOrphans(List => {
+            foreach(OrphanEntry O in List.Where(O => O.ID == ID && O.FailedAt == At)){ O.Dismissed = true; }
+        });
+        __SendOrphans();
+    }
+    
     // ----------------------------------------------------------------------
     
     private static readonly Regex __ResultEntryStart = new(@"^\s*\[(?<id>\d+)\s*,");
@@ -1463,12 +1699,16 @@ html, body{
     }
 
     private static void __AppendResultEntry(int ID, string CreateDate, string VideoID, TimeSpan Duration, bool IsShorts){
-        string PublishDate    = DateTime.Now.ToString("yyyy.MM.dd");
-        string DurationString = __FormatDuration(Duration);
-        string Tags           = IsShorts ? "T_Shorts, T_WIP" : "T_WIP";
+        string PublishDate = DateTime.Now.ToString("yyyy.MM.dd");
+        string Tags        = IsShorts ? "T_Shorts, T_WIP" : "T_WIP";
+
+        string FormattedDuration = __FormatDuration(Duration);
+        string DurationField     = FormattedDuration == "00:00"
+            ? "REALZERO_Duration"
+            : $"\"{FormattedDuration}\"";
 
         string Entry =
-            $"\t[{ID}, \"~\", \"{CreateDate}\", \"{VideoID}\", \"{PublishDate}\", \"{DurationString}\", P_Hide,\n" +
+            $"\t[{ID}, \"~\", \"{CreateDate}\", \"{VideoID}\", \"{PublishDate}\", {DurationField}, P_Hide,\n" +
             $"\t[{Tags}],\n" +
             "\t\"Опубликовано YouTubePublisher\"],";
 
@@ -1492,7 +1732,6 @@ html, body{
                 throw new ExceptionWL("Проверка нового Result.js не пройдена, файл НЕ перезаписан (ничего не потеряно).");
             }
 
-            __BackupFile(ResultFilePath);
             __WriteAllTextAtomic(ResultFilePath, NewContent);
         }
     }
@@ -1610,6 +1849,12 @@ html, body{
     }
 
     private static void __PublishCore(string Name, bool IsAutoPublish, int ChunkSizeMB){
+        YouTube? Client = YouTube;
+        if(Client == null){
+            __EnqueuePublishFailed(Name, "Подключение к YouTube ещё не установлено (или не удалось). Подожди или перезапусти программу.", "NotConnected");
+            return;
+        }
+        
         string SourcePath = IOPath.Combine(VideosFolder, Name);
 
         if(!File.Exists(SourcePath)){
@@ -1654,7 +1899,7 @@ html, body{
 
         YouTubeOperationResult<YouTubeVideo> UploadResult;
         try{
-            UploadResult = YouTube.UploadVideo(
+            UploadResult = Client.UploadVideo(
                 VideoPath: SourcePath,
                 Title: Title,
                 Description: Description,
